@@ -5,6 +5,7 @@ import { listConfigFechas, saveConfigFechas, deleteConfigFecha, requestFechaExce
 import { getUsuarios, postUsuario, putUsuario, delUsuario, desconectarUsuarioEndpoint } from '../controllers/usuariosController.js'
 import { getArchivosTree, deleteArchivo, replaceArchivo } from '../controllers/archivosController.js'
 import { listAdminFormatos, uploadAdminFormato, deleteAdminFormato } from '../controllers/adminFormatosController.js'
+import { getPermisosCatalogos, getPermisosUsuario, savePermisosUsuario, getMisPermisos } from '../controllers/permisosController.js'
 
 const upload = multer({ dest: 'uploads/temp/' })
 
@@ -93,5 +94,11 @@ router.delete('/formatos/:archivo', auth, isSuperAdmin, deleteAdminFormato)
 // Rutas de Catálogo de Cursos (Admin)
 router.get('/cursos', auth, isSuperAdmin, listCursosAdmin)
 router.put('/cursos/:id/color', auth, isSuperAdmin, updateCursoColor)
+
+// Rutas de Gestión de Permisos Granulares (RBAC 2027)
+router.get('/permisos/catalogos', auth, isSuperAdmin, getPermisosCatalogos)
+router.get('/permisos/usuario/:id_usuario', auth, onlySuperAdmin, getPermisosUsuario)
+router.post('/permisos/usuario/:id_usuario', auth, onlySuperAdmin, savePermisosUsuario)
+router.get('/permisos/mis-permisos', auth, getMisPermisos)
 
 export default router

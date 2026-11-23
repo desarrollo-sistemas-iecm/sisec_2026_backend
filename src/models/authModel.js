@@ -1,47 +1,48 @@
-// Auth model for SISEC CC 2026
+// Auth model for SISEC CC 2027
 import bcrypt from 'bcryptjs'
-import { getPool, sql } from '../config/db.js'
+import { getNewPool, sql } from '../config/db.js'
 
 const isBcryptHash = (value = '') => value.startsWith('$2a$') || value.startsWith('$2b$') || value.startsWith('$2y$')
 
 export const verifyCredentials = async (usuario, contrasena) => {
-  const pool = await getPool()
-  const request = pool.request()
-
   const userInput = String(usuario ?? '').trim()
   const passInput = String(contrasena ?? '').trim()
 
-  request.input('usuario', sql.VarChar(10), userInput)
+  try {
+    const newPool = await getNewPool()
+    const newReq = newPool.request()
+    newReq.input('usuario', sql.VarChar(50), userInput)
+    const newResult = await newReq.query(`
+      SELECT id_usuario, usuario, password, status, id_tipousuario, id_distrito
+      FROM usuarios
+      WHERE usuario = @usuario AND status = 1
+    `)
 
-  const result = await request.query(`
-    SELECT idusuario, idsede, idpermiso, usuario, password, pass2, estado
-    FROM sisec_usuarios
-    WHERE usuario = @usuario AND estado = 1
-  `)
+    const userRow = newResult.recordset[0]
+    if (userRow) {
+      const stored = String(userRow.password ?? '').trim()
+      let valid = false
+      if (isBcryptHash(stored)) {
+        valid = await bcrypt.compare(passInput, stored)
+      } else {
+        valid = passInput === stored
+      }
 
-  const row = result.recordset[0]
-  if (!row) {
+      if (valid) {
+        return {
+          idUsuario: userRow.id_usuario,
+          id_usuario: userRow.id_usuario,
+          idsede: userRow.id_distrito,
+          id_distrito: userRow.id_distrito,
+          permiso: userRow.id_tipousuario,
+          id_tipousuario: userRow.id_tipousuario,
+          nombre: userRow.usuario
+        }
+      }
+    }
     return null
-  }
-
-  const stored = String(row.password ?? '').trim()
-  const storedAlt = String(row.pass2 ?? '').trim()
-  let valid = false
-
-  if (isBcryptHash(stored)) {
-    valid = await bcrypt.compare(passInput, stored)
-  } else {
-    valid = passInput === stored || passInput === storedAlt
-  }
-
-  if (!valid) {
+  } catch (err) {
     return null
-  }
-
-  return {
-    idUsuario: row.idusuario,
-    idsede: row.idsede,
-    permiso: row.idpermiso,
-    nombre: row.usuario
   }
 }
+

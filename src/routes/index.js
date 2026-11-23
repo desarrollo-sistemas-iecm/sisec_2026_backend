@@ -10,6 +10,9 @@ import reportesRoutes from './reportesRoutes.js'
 import uploadsRoutes from './uploadsRoutes.js'
 import notificacionesRoutes from './notificacionesRoutes.js'
 import adminRoutes from './adminRoutes.js'
+import programacion2027Routes from './programacion2027Routes.js'
+import captura2027Routes from './captura2027Routes.js'
+import notificaciones2027Routes from './notificaciones2027Routes.js'
 
 const router = Router()
 
@@ -23,5 +26,10 @@ router.use('/reportes', reportesRoutes)
 router.use('/uploads', uploadsRoutes)
 router.use('/notificaciones', notificacionesRoutes)
 router.use('/admin', adminRoutes)
+
+// Rutas 2027
+router.use('/programacion-2027', programacion2027Routes)
+router.use('/captura-2027', captura2027Routes)
+router.use('/notificaciones-2027', notificaciones2027Routes)
 
 export default router

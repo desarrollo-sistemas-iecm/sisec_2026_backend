@@ -1,45 +1,38 @@
-// Catalogo model for SISEC CC 2026
-import { getPool } from '../config/db.js'
+// Catalogo model for SISEC CC 2027 — Consulta 100% a sisec_2027_dev
+import { getNewPool } from '../config/db.js'
 
 export const getCatalogosReportes = async () => {
-  const pool = await getPool()
+  const pool = await getNewPool()
 
-  // Sedes de distritos (máximo 33 distritos)
-  const sedes = await pool.request().query(`
-    SELECT idsede, descripcion, iddelegacion
-    FROM sisec_sedes
-    WHERE idsede <= 33
-    ORDER BY idsede
-  `)
-
-  // Delegaciones (máximo 17)
-  const delegaciones = await pool.request().query(`
-    SELECT iddelegacion, descripcion
-    FROM sisec_delegaciones
-    WHERE iddelegacion <= 17
-    ORDER BY iddelegacion
-  `)
-
-  // Catálogo de cursos activos (se filtra en frontend por idtipo)
-  const cursos = await pool.request().query(`
-    SELECT idcurso, descripcion, idtipo
-    FROM sisecycc2024.dbo.sisec_cat_cursos
-    WHERE estatus = 1
-    ORDER BY idtipo, descripcion
-  `)
-
-  // Catálogo de tipos de público (para intervenciones educativas)
-  const tiposPublico = await pool.request().query(`
-    SELECT idtipopublico, descripcion
-    FROM sisecycc2024.dbo.sisec_cat_tipos_publico
-    WHERE estatus = 1
-    ORDER BY idtipopublico
-  `)
+  const [sedes, delegaciones, cursos] = await Promise.all([
+    pool.request().query(`
+      SELECT id_distrito AS idsede, 'Distrito ' + CAST(distrito AS varchar) AS descripcion, id_distrito AS iddelegacion
+      FROM cat_distritos
+      WHERE status = 1
+      ORDER BY distrito ASC
+    `),
+    pool.request().query(`
+      SELECT id_demarcacion AS iddelegacion, demarcacion AS descripcion
+      FROM cat_demarcacion
+      WHERE status = 1
+      ORDER BY id_demarcacion ASC
+    `),
+    pool.request().query(`
+      SELECT 
+        id_accion AS idcurso, 
+        clave_accion,
+        nombre_accion AS descripcion, 
+        id_vertiente AS idtipo
+      FROM cat_acciones
+      WHERE status = 1
+      ORDER BY id_accion ASC
+    `)
+  ])
 
   return {
     sedes: sedes.recordset,
     delegaciones: delegaciones.recordset,
     cursos: cursos.recordset,
-    tiposPublico: tiposPublico.recordset
+    tiposPublico: []
   }
 }

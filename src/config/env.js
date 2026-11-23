@@ -1,11 +1,27 @@
 // Environment loader for SISEC CC 2026
 import dotenv from 'dotenv'
 import os from 'os'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const envName = process.env.NODE_ENV || 'development'
 const envFile = `.env.${envName}`
 
-dotenv.config({ path: envFile })
+// Cargar .env resolviendo tanto process.cwd() como la raíz de backend
+const envPathCwd = path.resolve(process.cwd(), envFile)
+const envPathBackend = path.resolve(__dirname, '../../', envFile)
+
+if (fs.existsSync(envPathCwd)) {
+  dotenv.config({ path: envPathCwd })
+} else if (fs.existsSync(envPathBackend)) {
+  dotenv.config({ path: envPathBackend })
+} else {
+  dotenv.config()
+}
 
 // Función para obtener la IP activa de la máquina
 const getLocalIp = () => {
@@ -37,6 +53,20 @@ export const env = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     port: Number(process.env.DB_PORT || 1433)
+  },
+  dbHistorical: {
+    server: process.env.DB_HISTORICAL_SERVER || process.env.DB_SERVER,
+    database: process.env.DB_HISTORICAL_DATABASE || 'sisecycc2024',
+    user: process.env.DB_HISTORICAL_USER || process.env.DB_USER,
+    password: process.env.DB_HISTORICAL_PASSWORD || process.env.DB_PASSWORD,
+    port: Number(process.env.DB_HISTORICAL_PORT || process.env.DB_PORT || 1433)
+  },
+  dbNew: {
+    server: process.env.DB_NEW_SERVER || process.env.DB_SERVER,
+    database: process.env.DB_NEW_DATABASE || 'sisec_2027_dev',
+    user: process.env.DB_NEW_USER || process.env.DB_USER,
+    password: process.env.DB_NEW_PASSWORD || process.env.DB_PASSWORD,
+    port: Number(process.env.DB_NEW_PORT || process.env.DB_PORT || 1433)
   },
   jwt: {
     secret: process.env.JWT_SECRET,

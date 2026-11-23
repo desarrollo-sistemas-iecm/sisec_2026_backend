@@ -58,13 +58,33 @@ export const desconectarUsuarioEndpoint = async (req, res, next) => {
 
     const idUsuario = Number(req.params.id)
 
-    // 1. Invalidar en base de datos: poner sesion_id = NULL
-    const pool = await getPool()
-    await pool.request()
-      .input('idusuario', sql.Int, idUsuario)
-      .query('UPDATE sisec_usuarios SET sesion_id = NULL WHERE idusuario = @idusuario')
+    // 1. Invalidar en base de datos 2027
+    try {
+      const { getNewPool } = await import('../config/db.js')
+      const newPool = await getNewPool()
+      await newPool.request()
+        .input('idusuario', sql.Int, idUsuario)
+        .query(`
+          UPDATE usuarios SET session_id = NULL WHERE id_usuario = @idusuario;
+          UPDATE sesiones_activas 
+          SET is_active = 0, fecha_cierre = GETDATE() 
+          WHERE id_usuario = @idusuario AND is_active = 1;
+        `)
+    } catch (newErr) {
+      // ignore
+    }
 
-    // 2. Desconectar físicamente el WebSocket
+    // 2. Invalidar en base previa (fallback)
+    try {
+      const pool = await getPool()
+      await pool.request()
+        .input('idusuario', sql.Int, idUsuario)
+        .query('UPDATE sisec_usuarios SET sesion_id = NULL WHERE idusuario = @idusuario')
+    } catch (oldErr) {
+      // ignore
+    }
+
+    // 3. Desconectar físicamente el WebSocket
     desconectarUsuario(idUsuario, 'Tu cuenta ha sido cerrada por el administrador.')
 
     return res.json({ success: true, message: 'Usuario desconectado correctamente.' })

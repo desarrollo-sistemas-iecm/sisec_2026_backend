@@ -59,7 +59,11 @@ apiPrefixes.forEach((prefix) => {
 const publicPath = path.join(__dirname, '../public')
 app.use(express.static(publicPath, { redirect: false }))
 app.use('/sisec_2026', express.static(publicPath, { redirect: false }))
-app.use('/sisec_2026', express.static(publicPath, { redirect: false }))
+
+// Servir archivos estáticos de uploads (expedientes 2027, encuestas y formatos)
+const uploadsPath = path.resolve(process.cwd(), env.uploadPath || './uploads')
+app.use('/uploads', express.static(uploadsPath))
+app.use('/sisec_2026/uploads', express.static(uploadsPath))
 
 // Middleware fallback para soportar Vue Router en modo History
 // Protege explícitamente las rutas de /api y /socket.io para no entregarles index.html
