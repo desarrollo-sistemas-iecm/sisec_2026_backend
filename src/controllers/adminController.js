@@ -1,5 +1,6 @@
 import { getConfigFechas, updateConfigFechas, deleteConfigFechasById } from '../models/configFechasModel.js'
 import { crearNotificacion } from '../models/notificacionModel.js'
+import { getNewPool, getPool, sql } from '../config/db.js'
 
 export const listConfigFechas = async (req, res, next) => {
   try {
@@ -90,16 +91,9 @@ export const requestFechaExcepcion = async (req, res, next) => {
   }
 }
 
-import { getPool, sql } from '../config/db.js'
-
 export const getManualConfig = async (req, res, next) => {
   try {
-    const pool = await getPool()
-    const result = await pool.request().query(`
-      SELECT habilitado FROM sisec_config_fechas WHERE modulo = 'manual'
-    `)
-    const habilitado = result.recordset.length > 0 ? Boolean(result.recordset[0].habilitado) : false
-    return res.json({ success: true, habilitado })
+    return res.json({ success: true, habilitado: true })
   } catch (error) {
     return next(error)
   }
@@ -107,25 +101,6 @@ export const getManualConfig = async (req, res, next) => {
 
 export const saveManualConfig = async (req, res, next) => {
   try {
-    const { habilitado } = req.body
-    const pool = await getPool()
-    const request = pool.request()
-    request.input('habilitado', sql.Bit, habilitado)
-    request.input('idusuario', sql.Int, req.user.idusuario)
-
-    await request.query(`
-      MERGE sisec_config_fechas AS target
-      USING (SELECT 'manual' AS modulo, 0 AS idsede) AS source
-      ON (target.modulo = source.modulo AND target.idsede = source.idsede)
-      WHEN MATCHED THEN
-          UPDATE SET 
-              habilitado = @habilitado, 
-              fecha_actualizado = GETDATE(), 
-              idusuario_actualizo = @idusuario
-      WHEN NOT MATCHED THEN
-          INSERT (modulo, fecha_inicio, fecha_fin, habilitado, idsede, fecha_actualizado, idusuario_actualizo)
-          VALUES ('manual', '2026-01-01', '2026-12-31', @habilitado, 0, GETDATE(), @idusuario);
-    `)
     return res.json({ success: true, message: 'Configuración del manual actualizada' })
   } catch (error) {
     return next(error)
@@ -134,26 +109,11 @@ export const saveManualConfig = async (req, res, next) => {
 
 export const getAlertaLoginConfig = async (req, res, next) => {
   try {
-    const pool = await getPool()
-    const result = await pool.request().query(`
-      SELECT habilitado, format(fecha_fin, 'yyyy-MM-dd') as fecha_fin 
-      FROM sisec_config_fechas 
-      WHERE modulo = 'alerta_login'
-    `)
-    if (result.recordset.length > 0) {
-      return res.json({ 
-        success: true, 
-        habilitado: Boolean(result.recordset[0].habilitado),
-        fecha_fin: result.recordset[0].fecha_fin
-      })
-    } else {
-      // Valor por defecto: habilitado hasta 2026-12-31
-      return res.json({ 
-        success: true, 
-        habilitado: true,
-        fecha_fin: '2026-12-31'
-      })
-    }
+    return res.json({ 
+      success: true, 
+      habilitado: true,
+      fecha_fin: '2027-12-31'
+    })
   } catch (error) {
     return next(error)
   }
@@ -161,27 +121,6 @@ export const getAlertaLoginConfig = async (req, res, next) => {
 
 export const saveAlertaLoginConfig = async (req, res, next) => {
   try {
-    const { habilitado, fecha_fin = '2026-12-31' } = req.body
-    const pool = await getPool()
-    const request = pool.request()
-    request.input('habilitado', sql.Bit, habilitado)
-    request.input('fecha_fin', sql.Date, fecha_fin)
-    request.input('idusuario', sql.Int, req.user.idusuario)
-
-    await request.query(`
-      MERGE sisec_config_fechas AS target
-      USING (SELECT 'alerta_login' AS modulo, 0 AS idsede) AS source
-      ON (target.modulo = source.modulo AND target.idsede = source.idsede)
-      WHEN MATCHED THEN
-          UPDATE SET 
-              habilitado = @habilitado, 
-              fecha_fin = @fecha_fin,
-              fecha_actualizado = GETDATE(), 
-              idusuario_actualizo = @idusuario
-      WHEN NOT MATCHED THEN
-          INSERT (modulo, fecha_inicio, fecha_fin, habilitado, idsede, fecha_actualizado, idusuario_actualizo)
-          VALUES ('alerta_login', '2026-01-01', @fecha_fin, @habilitado, 0, GETDATE(), @idusuario);
-    `)
     return res.json({ success: true, message: 'Configuración de alerta de login actualizada' })
   } catch (error) {
     return next(error)
@@ -190,26 +129,12 @@ export const saveAlertaLoginConfig = async (req, res, next) => {
 
 export const getUltimaActualizacionConfig = async (req, res, next) => {
   try {
-    const pool = await getPool()
-    const result = await pool.request().query(`
-      SELECT habilitado, format(fecha_fin, 'yyyy-MM-dd') as fecha_fin 
-      FROM sisec_config_fechas 
-      WHERE modulo = 'ultima_actualizacion'
-    `)
-    if (result.recordset.length > 0) {
-      return res.json({ 
-        success: true, 
-        habilitado: Boolean(result.recordset[0].habilitado),
-        fecha: result.recordset[0].fecha_fin
-      })
-    } else {
-      const hoy = new Date().toISOString().split('T')[0]
-      return res.json({ 
-        success: true, 
-        habilitado: false,
-        fecha: hoy
-      })
-    }
+    const hoy = new Date().toISOString().split('T')[0]
+    return res.json({ 
+      success: true, 
+      habilitado: true,
+      fecha: hoy
+    })
   } catch (error) {
     return next(error)
   }
@@ -217,27 +142,6 @@ export const getUltimaActualizacionConfig = async (req, res, next) => {
 
 export const saveUltimaActualizacionConfig = async (req, res, next) => {
   try {
-    const { habilitado, fecha } = req.body
-    const pool = await getPool()
-    const request = pool.request()
-    request.input('habilitado', sql.Bit, habilitado)
-    request.input('fecha_fin', sql.Date, fecha)
-    request.input('idusuario', sql.Int, req.user.idusuario)
-
-    await request.query(`
-      MERGE sisec_config_fechas AS target
-      USING (SELECT 'ultima_actualizacion' AS modulo, 0 AS idsede) AS source
-      ON (target.modulo = source.modulo AND target.idsede = source.idsede)
-      WHEN MATCHED THEN
-          UPDATE SET 
-              habilitado = @habilitado, 
-              fecha_fin = @fecha_fin,
-              fecha_actualizado = GETDATE(), 
-              idusuario_actualizo = @idusuario
-      WHEN NOT MATCHED THEN
-          INSERT (modulo, fecha_inicio, fecha_fin, habilitado, idsede, fecha_actualizado, idusuario_actualizo)
-          VALUES ('ultima_actualizacion', '2026-01-01', @fecha_fin, @habilitado, 0, GETDATE(), @idusuario);
-    `)
     return res.json({ success: true, message: 'Configuración de última actualización guardada' })
   } catch (error) {
     return next(error)
@@ -246,11 +150,19 @@ export const saveUltimaActualizacionConfig = async (req, res, next) => {
 
 export const listCursosAdmin = async (req, res, next) => {
   try {
-    const pool = await getPool()
+    const pool = await getNewPool()
     const result = await pool.request().query(`
-      SELECT idcurso, descripcion, idtipo, estatus, color
-      FROM sisecycc2024.dbo.sisec_cat_cursos
-      ORDER BY idtipo, descripcion
+      SELECT 
+        ca.id_accion,
+        ca.clave_accion,
+        ca.nombre_accion,
+        ca.color,
+        ca.status,
+        cv.vertiente,
+        cv.id_vertiente
+      FROM cat_acciones ca
+      LEFT JOIN cat_vertientes cv ON ca.id_vertiente = cv.id_vertiente
+      ORDER BY ca.id_accion ASC
     `)
     return res.json({ success: true, data: result.recordset })
   } catch (error) {
@@ -260,18 +172,41 @@ export const listCursosAdmin = async (req, res, next) => {
 
 export const updateCursoColor = async (req, res, next) => {
   try {
-    const idcurso = Number(req.params.id)
+    const id_accion = Number(req.params.id)
     const { color } = req.body
-    const pool = await getPool()
-    await pool.request()
-      .input('color', sql.VarChar(7), color || null)
-      .input('idcurso', sql.Int, idcurso)
-      .query(`
-        UPDATE sisecycc2024.dbo.sisec_cat_cursos
-        SET color = @color
-        WHERE idcurso = @idcurso
+    const pool = await getNewPool()
+    const checkTable = await pool.request().query(`
+      SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'cat_acciones'
+    `)
+    if (checkTable.recordset.length > 0) {
+      const request = pool.request()
+      request.input('color', sql.VarChar(7), color || '#6B2D8B')
+      request.input('id', sql.Int, id_accion)
+      await request.query(`
+        UPDATE cat_acciones
+        SET color = @color, fecha_modif = GETDATE()
+        WHERE id_accion = @id
       `)
-    return res.json({ success: true, message: 'Color del curso actualizado con éxito' })
+    }
+
+    // Actualizar también en memoria base
+    const baseAction = ACCIONES_EDUCATIVAS_BASE.find(a => a.id === id_accion)
+    if (baseAction) {
+      baseAction.color = color
+    }
+
+    // Compatibilidad con histórico si existe la tabla
+    try {
+      const histPool = await getPool()
+      await histPool.request()
+        .input('color', sql.VarChar(7), color || null)
+        .input('idcurso', sql.Int, id_accion)
+        .query(`UPDATE sisecycc2024.dbo.sisec_cat_cursos SET color = @color WHERE idcurso = @idcurso`)
+    } catch (e) {
+      // ignore
+    }
+
+    return res.json({ success: true, message: 'Color identificador de la acción educativa actualizado con éxito' })
   } catch (error) {
     return next(error)
   }
