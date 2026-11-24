@@ -1,113 +1,142 @@
-// Usuario model for SISEC CC 2027
-import { getNewPool, getPool, sql } from '../config/db.js'
+// Usuario model for SISEC CC
+import { getPool, getNewPool, sql } from '../config/db.js'
 
 export const listUsuarios = async () => {
   try {
-    const newPool = await getNewPool()
-    const result = await newPool.request().query(`
+    const pool = await getPool()
+    const result = await pool.request().query(`
       SELECT 
-        u.id_usuario AS idusuario,
-        u.id_usuario,
-        u.usuario,
-        ISNULL(u.nombre_completo, u.usuario) AS nombre_completo,
-        ISNULL(u.correo, '') AS correo,
-        ISNULL(u.id_distrito, 1) AS idsede,
-        ISNULL(u.id_distrito, 1) AS id_distrito,
-        d.distrito,
-        u.id_tipousuario AS idpermiso,
-        u.id_tipousuario,
-        t.descripcion AS perfil,
-        CASE WHEN u.status = 1 THEN 1 ELSE 0 END AS estado,
-        u.session_id,
-        u.fecha_alta,
-        CONVERT(varchar(19), u.fecha_alta, 120) AS fecha_registro
-      FROM usuarios u
-      LEFT JOIN cat_tipousuarios t ON u.id_tipousuario = t.id_tipousuario
-      LEFT JOIN cat_distritos d ON u.id_distrito = d.id_distrito
-      WHERE u.status = 1
-      ORDER BY u.id_distrito ASC, u.id_tipousuario ASC
+        idusuario,
+        idusuario AS id_usuario,
+        usuario,
+        CASE 
+          WHEN idpermiso >= 2 OR usuario = 'admin' OR idsede = 0 THEN 0 
+          ELSE idsede 
+        END AS idsede,
+        CASE 
+          WHEN idpermiso >= 2 OR usuario = 'admin' OR idsede = 0 THEN 0 
+          ELSE idsede 
+        END AS id_distrito,
+        idpermiso,
+        idpermiso AS id_tipousuario,
+        estado,
+        'N/A' as fecha_registro
+      FROM sisec_usuarios
+      WHERE estado = 1
+      ORDER BY idsede ASC, idpermiso ASC
     `)
     return result.recordset
   } catch (err) {
-    return []
+    // Fallback a tabla usuarios de nueva BD si existiera
+    try {
+      const newPool = await getNewPool()
+      const res = await newPool.request().query(`
+        SELECT 
+          id_usuario AS idusuario,
+          id_usuario,
+          usuario,
+          CASE 
+            WHEN id_tipousuario >= 2 OR usuario = 'admin' OR id_distrito = 0 OR id_distrito IS NULL THEN 0 
+            ELSE id_distrito 
+          END AS idsede,
+          CASE 
+            WHEN id_tipousuario >= 2 OR usuario = 'admin' OR id_distrito = 0 OR id_distrito IS NULL THEN 0 
+            ELSE id_distrito 
+          END AS id_distrito,
+          id_tipousuario AS idpermiso,
+          id_tipousuario,
+          status AS estado,
+          CONVERT(varchar(19), fecha_alta, 120) AS fecha_registro
+        FROM usuarios
+        WHERE status = 1
+        ORDER BY id_distrito ASC, id_tipousuario ASC
+      `)
+      return res.recordset
+    } catch (e2) {
+      console.error('[USUARIO_MODEL] Error al listar usuarios:', e2.message)
+      return []
+    }
   }
 }
 
 export const createUsuario = async (payload) => {
-  const cleanUsuario = String(payload.usuario ?? '').trim()
-  const cleanPassword = String(payload.password ?? '').trim()
-  const idSede = parseInt(payload.idsede || payload.id_distrito || 1, 10)
-  const idPermiso = parseInt(payload.idpermiso || payload.id_tipousuario || 1, 10)
-  const nombreCompleto = payload.nombre_completo || cleanUsuario
-  const correo = payload.correo || null
+  const pool = await getPool()
+  const request = pool.request()
 
-  const newPool = await getNewPool()
+  // Limitar a 10 caracteres para cumplir con la restricción VARCHAR(10) de la BD
+  const cleanUsuario = String(payload.usuario ?? '').trim().substring(0, 10)
+  const cleanPassword = String(payload.password ?? '').trim().substring(0, 10)
 
-  // Validar unicidad de usuario
-  const checkReq = newPool.request()
-  checkReq.input('usuario', sql.VarChar(50), cleanUsuario)
-  const existRes = await checkReq.query('SELECT id_usuario FROM usuarios WHERE usuario = @usuario')
-  if (existRes.recordset.length > 0) {
+  request.input('usuario', sql.VarChar(10), cleanUsuario)
+  
+  // Validar si el usuario ya existe
+  const existResult = await request.query(`
+    SELECT idusuario FROM sisec_usuarios WHERE usuario = @usuario
+  `)
+  if (existResult.recordset.length > 0) {
     throw new Error('El nombre de usuario ya existe.')
   }
 
-  const insertReq = newPool.request()
-  insertReq.input('usuario', sql.VarChar(50), cleanUsuario)
-  insertReq.input('password', sql.VarChar(255), cleanPassword)
-  insertReq.input('nombre_completo', sql.VarChar(120), nombreCompleto)
-  insertReq.input('correo', sql.VarChar(100), correo)
-  insertReq.input('id_tipousuario', sql.Int, idPermiso)
-  insertReq.input('id_distrito', sql.Int, idSede)
-
-  const insertRes = await insertReq.query(`
-    INSERT INTO usuarios 
-      (usuario, password, nombre_completo, correo, id_tipousuario, id_distrito, status, fecha_alta)
-    VALUES 
-      (@usuario, @password, @nombre_completo, @correo, @id_tipousuario, @id_distrito, 1, GETDATE());
-    SELECT SCOPE_IDENTITY() AS newId;
+  // Obtener el siguiente idusuario disponible (al no ser columna IDENTITY)
+  const maxResult = await pool.request().query(`
+    SELECT ISNULL(MAX(idusuario), 0) + 1 AS nextId FROM sisec_usuarios
   `)
+  const nextId = maxResult.recordset[0].nextId
 
-  const newId = insertRes.recordset[0]?.newId
+  const idPermiso = parseInt(payload.idpermiso || payload.id_tipousuario || 1, 10)
+  let idSede = parseInt(payload.idsede !== undefined ? payload.idsede : (payload.id_distrito !== undefined ? payload.id_distrito : 1), 10)
+  if (idPermiso >= 2 || cleanUsuario.toLowerCase() === 'admin') {
+    idSede = 0
+  }
 
-  return { idusuario: newId, id_usuario: newId }
+  request.input('idusuario', sql.TinyInt, nextId)
+  request.input('password', sql.VarChar(10), cleanPassword)
+  request.input('idsede', sql.TinyInt, idSede)
+  request.input('idpermiso', sql.TinyInt, idPermiso)
+
+  await request.query(`
+    INSERT INTO sisec_usuarios (idusuario, usuario, password, pass2, idsede, idpermiso, estado)
+    VALUES (@idusuario, @usuario, @password, @password, @idsede, @idpermiso, 1)
+  `)
+  return { idusuario: nextId, id_usuario: nextId }
 }
 
 export const updateUsuario = async (id, payload) => {
-  const newPool = await getNewPool()
-  const request = newPool.request()
+  const pool = await getPool()
+  const request = pool.request()
 
-  const idSede = parseInt(payload.idsede || payload.id_distrito || 1, 10)
   const idPermiso = parseInt(payload.idpermiso || payload.id_tipousuario || 1, 10)
+  let idSede = parseInt(payload.idsede !== undefined ? payload.idsede : (payload.id_distrito !== undefined ? payload.id_distrito : 1), 10)
+  if (idPermiso >= 2) {
+    idSede = 0
+  }
 
   request.input('id', sql.Int, id)
-  request.input('idsede', sql.Int, idSede)
-  request.input('idpermiso', sql.Int, idPermiso)
+  request.input('idsede', sql.TinyInt, idSede)
+  request.input('idpermiso', sql.TinyInt, idPermiso)
 
   let query = `
-    UPDATE usuarios
-    SET id_distrito = @idsede, id_tipousuario = @idpermiso, fecha_modif = GETDATE()
+    UPDATE sisec_usuarios
+    SET idsede = @idsede, idpermiso = @idpermiso
   `
 
   if (payload.password) {
-    const cleanPassword = String(payload.password ?? '').trim()
-    request.input('password', sql.VarChar(255), cleanPassword)
-    query += `, password = @password`
+    const cleanPassword = String(payload.password ?? '').trim().substring(0, 10)
+    request.input('password', sql.VarChar(10), cleanPassword)
+    query += `, password = @password, pass2 = @password`
   }
 
-  if (payload.nombre_completo) {
-    request.input('nombre_completo', sql.VarChar(120), String(payload.nombre_completo).trim())
-    query += `, nombre_completo = @nombre_completo`
-  }
-
-  query += ` WHERE id_usuario = @id`
+  query += ` WHERE idusuario = @id`
   await request.query(query)
 }
 
 export const deleteUsuario = async (id) => {
-  const newPool = await getNewPool()
-  const request = newPool.request()
+  const pool = await getPool()
+  const request = pool.request()
+  
   request.input('id', sql.Int, id)
+  // Soft delete
   await request.query(`
-    UPDATE usuarios SET status = 0, fecha_baja = GETDATE() WHERE id_usuario = @id
+    UPDATE sisec_usuarios SET estado = 0 WHERE idusuario = @id
   `)
 }

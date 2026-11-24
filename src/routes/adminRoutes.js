@@ -1,10 +1,17 @@
 import { Router } from 'express'
 import { auth } from '../middlewares/auth.js'
 import multer from 'multer'
-import { listConfigFechas, saveConfigFechas, deleteConfigFecha, requestFechaExcepcion, getManualConfig, saveManualConfig, getAlertaLoginConfig, saveAlertaLoginConfig, getUltimaActualizacionConfig, saveUltimaActualizacionConfig, listCursosAdmin, updateCursoColor } from '../controllers/adminController.js'
+import { listConfigFechas, saveConfigFechas, deleteConfigFecha, requestFechaExcepcion, getManualConfig, saveManualConfig, getAlertaLoginConfig, saveAlertaLoginConfig, getUltimaActualizacionConfig, saveUltimaActualizacionConfig, listCursosAdmin, createCursoAdmin, updateCursoColor, updateVertienteColor } from '../controllers/adminController.js'
 import { getUsuarios, postUsuario, putUsuario, delUsuario, desconectarUsuarioEndpoint } from '../controllers/usuariosController.js'
-import { getArchivosTree, deleteArchivo, replaceArchivo } from '../controllers/archivosController.js'
-import { listAdminFormatos, uploadAdminFormato, deleteAdminFormato } from '../controllers/adminFormatosController.js'
+import { getArchivosTree, deleteArchivo, replaceArchivo, downloadFolderZip } from '../controllers/archivosController.js'
+import {
+  listAdminFormatos,
+  uploadAdminFormato,
+  deleteAdminFormato,
+  toggleCategoria,
+  toggleFormato,
+  subirNuevoFormato
+} from '../controllers/adminFormatosController.js'
 import { getPermisosCatalogos, getPermisosUsuario, savePermisosUsuario, getMisPermisos } from '../controllers/permisosController.js'
 
 const upload = multer({ dest: 'uploads/temp/' })
@@ -57,6 +64,7 @@ router.put('/usuarios/:id/desconectar', auth, onlySuperAdmin, desconectarUsuario
 
 // Rutas de Archivos
 router.get('/archivos', auth, isSuperAdmin, getArchivosTree)
+router.get('/archivos/zip', auth, isSuperAdmin, downloadFolderZip)
 router.delete('/archivos', auth, isSuperAdmin, deleteArchivo)
 router.post('/archivos/replace', auth, isSuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }]), replaceArchivo)
 
@@ -86,14 +94,19 @@ router.post('/archivos/solicitar', auth, upload.fields([{ name: 'archivo', maxCo
   }
 })
 
-// Rutas de Formatos (Admin)
-router.get('/formatos', auth, isSuperAdmin, listAdminFormatos)
-router.post('/formatos/subir', auth, isSuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }]), uploadAdminFormato)
-router.delete('/formatos/:archivo', auth, isSuperAdmin, deleteAdminFormato)
+// Rutas de Formatos (Solo Super Admin)
+router.get('/formatos', auth, onlySuperAdmin, listAdminFormatos)
+router.post('/formatos/subir', auth, onlySuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }]), uploadAdminFormato)
+router.post('/formatos/nuevo', auth, onlySuperAdmin, upload.fields([{ name: 'archivo', maxCount: 1 }]), subirNuevoFormato)
+router.put('/formatos/toggle-categoria', auth, onlySuperAdmin, toggleCategoria)
+router.put('/formatos/toggle-formato', auth, onlySuperAdmin, toggleFormato)
+router.delete('/formatos/:archivo', auth, onlySuperAdmin, deleteAdminFormato)
 
 // Rutas de Catálogo de Cursos (Admin)
 router.get('/cursos', auth, isSuperAdmin, listCursosAdmin)
+router.post('/cursos', auth, isSuperAdmin, createCursoAdmin)
 router.put('/cursos/:id/color', auth, isSuperAdmin, updateCursoColor)
+router.put('/vertientes/:id/color', auth, isSuperAdmin, updateVertienteColor)
 
 // Rutas de Gestión de Permisos Granulares (RBAC 2027)
 router.get('/permisos/catalogos', auth, isSuperAdmin, getPermisosCatalogos)
