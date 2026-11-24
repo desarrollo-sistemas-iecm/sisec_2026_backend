@@ -1,7 +1,7 @@
-// Actividad model for SISEC CC 2026
+// Actividad model for SISEC CC 2026 / 2027
 import path from 'path'
 import fs from 'fs/promises'
-import { getPool, sql } from '../config/db.js'
+import { getPool, getNewPool, sql } from '../config/db.js'
 import { env } from '../config/env.js'
 
 const findFolderForFile = async (baseDir, filename) => {
@@ -220,83 +220,373 @@ export const eliminarActividad = async (idcurso) => {
   `)
 }
 
-export const getDashboardMetrics = async (idsede) => {
-  const pool = await getPool()
-  const request = pool.request()
+export const getDashboardMetrics = async (idsede, filtros = {}) => {
+  try {
+    const newPool = await getNewPool()
+    const checkTable = await newPool.request().query(`
+      SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'acciones_educativas'
+    `)
 
-  request.input('idsede', sql.TinyInt, idsede)
+    if (checkTable.recordset.length > 0) {
+      const request = newPool.request()
+      const sedeNum = Number(idsede) || 1
+      request.input('idsede', sql.Int, sedeNum)
 
-  const result = await request.query(`
-    SELECT
-      SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END) AS actividades_realizadas,
-      SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END) AS actividades_pendientes,
-      SUM(CASE WHEN cc.idtipo = 4 AND ti.status = 3 THEN 1 ELSE 0 END) AS total_intervenciones,
-      SUM(CASE WHEN cc.idtipo != 4 AND cc.idtipo IS NOT NULL AND ti.status = 3 THEN 1 ELSE 0 END) AS total_talleres,
-      SUM(
-        ISNULL(ti.phombres1, 0) + ISNULL(ti.phombres2, 0) + ISNULL(ti.phombres3, 0) + ISNULL(ti.phombres4, 0) +
-        ISNULL(ti.phombres5, 0) + ISNULL(ti.phombres6, 0) + ISNULL(ti.phombres7, 0) + ISNULL(ti.phombres8, 0)
-      ) AS total_hombres,
-      SUM(
-        ISNULL(ti.pmujeres1, 0) + ISNULL(ti.pmujeres2, 0) + ISNULL(ti.pmujeres3, 0) + ISNULL(ti.pmujeres4, 0) +
-        ISNULL(ti.pmujeres5, 0) + ISNULL(ti.pmujeres6, 0) + ISNULL(ti.pmujeres7, 0) + ISNULL(ti.pmujeres8, 0)
-      ) AS total_mujeres
-    FROM sisecycc2024.dbo.sisec_talleres_intervenciones ti
-    INNER JOIN sisec_usuarios u ON ti.idusuario = u.idusuario
-    LEFT JOIN sisecycc2024.dbo.sisec_cat_cursos cc ON ti.idcatcurso = cc.idcurso
-    WHERE u.idsede = @idsede AND ti.status IN (1, 3)
-  `)
+      let dateFilter = ''
+      let dateFilterEnc = ''
+      if (filtros.anio) {
+        request.input('anio', sql.Int, Number(filtros.anio))
+        dateFilter += ' AND YEAR(ae.fecha_programada) = @anio'
+        dateFilterEnc += ' AND YEAR(ae2.fecha_programada) = @anio'
+      }
+      if (filtros.mes) {
+        request.input('mes', sql.Int, Number(filtros.mes))
+        dateFilter += ' AND MONTH(ae.fecha_programada) = @mes'
+        dateFilterEnc += ' AND MONTH(ae2.fecha_programada) = @mes'
+      }
 
-  return result.recordset[0] || { 
-    actividades_realizadas: 0, 
-    actividades_pendientes: 0, 
-    total_intervenciones: 0, 
-    total_talleres: 0, 
-    total_hombres: 0, 
-    total_mujeres: 0 
+      const result = await request.query(`
+        SELECT
+          COUNT(*) AS total_acciones,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 1 THEN 1 ELSE 0 END), 0) AS sin_capturar,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 2 THEN 1 ELSE 0 END), 0) AS capturadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 3 THEN 1 ELSE 0 END), 0) AS finalizadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado IN (2, 3) THEN 1 ELSE 0 END), 0) AS total_capturadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 4 THEN 1 ELSE 0 END), 0) AS canceladas,
+          (SELECT COUNT(*) FROM encuestas enc 
+           INNER JOIN acciones_educativas ae2 ON enc.id_acciones_educativas = ae2.id_acciones_educativas 
+           INNER JOIN usuarios u2 ON ae2.id_usuario = u2.id_usuario 
+           WHERE u2.id_distrito = @idsede ${dateFilterEnc}) AS total_encuestas
+        FROM acciones_educativas ae
+        INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
+        WHERE u.id_distrito = @idsede ${dateFilter}
+      `)
+
+      const row = result.recordset[0] || {}
+      const total_acciones = Number(row.total_acciones || 0)
+      const sin_capturar = Number(row.sin_capturar || 0)
+      const capturadas = Number(row.capturadas || 0)
+      const finalizadas = Number(row.finalizadas || 0)
+      const total_capturadas = Number(row.total_capturadas || 0)
+      const total_encuestas = Number(row.total_encuestas || 0)
+
+      return {
+        total_acciones,
+        sin_capturar,
+        capturadas,
+        finalizadas,
+        total_capturadas,
+        total_encuestas,
+        actividades_realizadas: total_capturadas,
+        actividades_pendientes: sin_capturar
+      }
+    }
+  } catch (err) {
+    // Si falla o no existe tabla nueva, continúa con fallback legacy
+  }
+
+  // Fallback con BD legacy
+  try {
+    const pool = await getPool()
+    const request = pool.request()
+    request.input('idsede', sql.TinyInt, Number(idsede) || 1)
+
+    const result = await request.query(`
+      SELECT
+        COUNT(*) AS total_acciones,
+        ISNULL(SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END), 0) AS actividades_realizadas,
+        ISNULL(SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END), 0) AS actividades_pendientes,
+        ISNULL(SUM(CASE WHEN ti.status = 2 THEN 1 ELSE 0 END), 0) AS canceladas,
+        (SELECT COUNT(*) FROM sisecycc2024.dbo.sisec_encuestas) AS total_encuestas
+      FROM sisecycc2024.dbo.sisec_talleres_intervenciones ti
+      INNER JOIN sisec_usuarios u ON ti.idusuario = u.idusuario
+      WHERE u.idsede = @idsede
+    `)
+
+    const r = result.recordset[0] || {}
+    const realizadas = Number(r.actividades_realizadas || 0)
+    const pendientes = Number(r.actividades_pendientes || 0)
+    const total = Number(r.total_acciones || (realizadas + pendientes))
+
+    return {
+      total_acciones: total,
+      sin_capturar: pendientes,
+      capturadas: realizadas,
+      finalizadas: realizadas,
+      total_capturadas: realizadas,
+      total_encuestas: Number(r.total_encuestas || 0),
+      actividades_realizadas: realizadas,
+      actividades_pendientes: pendientes
+    }
+  } catch (e) {
+    return {
+      total_acciones: 0,
+      sin_capturar: 0,
+      capturadas: 0,
+      finalizadas: 0,
+      total_capturadas: 0,
+      total_encuestas: 0,
+      actividades_realizadas: 0,
+      actividades_pendientes: 0
+    }
   }
 }
 
-export const getAdminDashboardMetrics = async () => {
-  const pool = await getPool()
-  
-  // 1. Métricas Globales
-  const globalQuery = await pool.request().query(`
-    SELECT
-      ISNULL(SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END), 0) AS actividades_realizadas,
-      ISNULL(SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END), 0) AS actividades_pendientes,
-      ISNULL(SUM(CASE WHEN cc.idtipo = 4 AND ti.status = 3 THEN 1 ELSE 0 END), 0) AS total_intervenciones,
-      ISNULL(SUM(CASE WHEN cc.idtipo != 4 AND cc.idtipo IS NOT NULL AND ti.status = 3 THEN 1 ELSE 0 END), 0) AS total_talleres,
-      -- Conteo total encuestas usando la otra tabla sisecycc2024.dbo.sisec_encuestas
-      (SELECT COUNT(*) FROM sisecycc2024.dbo.sisec_encuestas) AS total_encuestas
-    FROM sisecycc2024.dbo.sisec_talleres_intervenciones ti
-    INNER JOIN sisec_usuarios u ON ti.idusuario = u.idusuario
-    LEFT JOIN sisecycc2024.dbo.sisec_cat_cursos cc ON ti.idcatcurso = cc.idcurso
-    WHERE ti.status IN (1, 3)
-  `)
+export const getAdminDashboardMetrics = async (filtros = {}) => {
+  try {
+    const newPool = await getNewPool()
+    const checkTable = await newPool.request().query(`
+      SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'acciones_educativas'
+    `)
 
-  // 2. Gráfica de Avance por Distrito (solo IDs de sede del 1 al 33)
-  const distritosQuery = await pool.request().query(`
-    SELECT
-      u.idsede,
-      SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END) as total_actividades
-    FROM sisec_usuarios u
-    LEFT JOIN sisecycc2024.dbo.sisec_talleres_intervenciones ti 
-      ON u.idusuario = ti.idusuario
-    WHERE u.idsede BETWEEN 1 AND 33
-    GROUP BY u.idsede
-    ORDER BY u.idsede ASC
-  `)
+    if (checkTable.recordset.length > 0) {
+      const anio = filtros.anio ? Number(filtros.anio) : null
+      const mes = filtros.mes ? Number(filtros.mes) : null
 
-  const globalMetrics = globalQuery.recordset[0] || {
-    actividades_realizadas: 0,
-    actividades_pendientes: 0,
-    total_intervenciones: 0,
-    total_talleres: 0,
-    total_encuestas: 0
+      const reqGlobal = newPool.request()
+      const reqDistritos = newPool.request()
+
+      let dateFilterGlobal = 'WHERE 1=1'
+      let dateFilterDistritos = 'WHERE 1=1'
+      let dateFilterEncGlobal = ''
+      let dateFilterEncDist = ''
+
+      if (anio) {
+        reqGlobal.input('anio', sql.Int, anio)
+        reqDistritos.input('anio', sql.Int, anio)
+        dateFilterGlobal += ' AND YEAR(ae.fecha_programada) = @anio'
+        dateFilterDistritos += ' AND YEAR(ae.fecha_programada) = @anio'
+        dateFilterEncGlobal += ' AND YEAR(ae_enc.fecha_programada) = @anio'
+        dateFilterEncDist += ' AND YEAR(ae2.fecha_programada) = @anio'
+      }
+      if (mes) {
+        reqGlobal.input('mes', sql.Int, mes)
+        reqDistritos.input('mes', sql.Int, mes)
+        dateFilterGlobal += ' AND MONTH(ae.fecha_programada) = @mes'
+        dateFilterDistritos += ' AND MONTH(ae.fecha_programada) = @mes'
+        dateFilterEncGlobal += ' AND MONTH(ae_enc.fecha_programada) = @mes'
+        dateFilterEncDist += ' AND MONTH(ae2.fecha_programada) = @mes'
+      }
+
+      // Años disponibles en base de datos
+      const aniosQuery = await newPool.request().query(`
+        SELECT DISTINCT YEAR(fecha_programada) AS anio
+        FROM acciones_educativas
+        WHERE fecha_programada IS NOT NULL
+        ORDER BY anio DESC
+      `)
+      const aniosDisponibles = aniosQuery.recordset.map(r => r.anio)
+      if (!aniosDisponibles.includes(2027)) aniosDisponibles.unshift(2027)
+
+      // 1. Métricas Globales 2027
+      const globalQuery = await reqGlobal.query(`
+        SELECT
+          COUNT(*) AS total_acciones,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 1 THEN 1 ELSE 0 END), 0) AS sin_capturar,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 2 THEN 1 ELSE 0 END), 0) AS capturadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 3 THEN 1 ELSE 0 END), 0) AS finalizadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado IN (2, 3) THEN 1 ELSE 0 END), 0) AS total_capturadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 4 THEN 1 ELSE 0 END), 0) AS canceladas,
+          (SELECT COUNT(*) FROM encuestas enc INNER JOIN acciones_educativas ae_enc ON enc.id_acciones_educativas = ae_enc.id_acciones_educativas WHERE 1=1 ${dateFilterEncGlobal}) AS total_encuestas
+        FROM acciones_educativas ae
+        ${dateFilterGlobal}
+      `)
+
+      // 2. Gráfica por Distrito (Distritos 1 a 33 y Central)
+      const distritosQuery = await reqDistritos.query(`
+        SELECT
+          u.id_distrito AS idsede,
+          COUNT(*) AS total_acciones,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 1 THEN 1 ELSE 0 END), 0) AS sin_capturar,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 2 THEN 1 ELSE 0 END), 0) AS capturadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 3 THEN 1 ELSE 0 END), 0) AS finalizadas,
+          ISNULL(SUM(CASE WHEN ae.id_estado IN (2, 3) THEN 1 ELSE 0 END), 0) AS total_actividades,
+          ISNULL(SUM(CASE WHEN ae.id_estado = 4 THEN 1 ELSE 0 END), 0) AS canceladas,
+          (SELECT COUNT(*) FROM encuestas enc 
+           INNER JOIN acciones_educativas ae2 ON enc.id_acciones_educativas = ae2.id_acciones_educativas 
+           INNER JOIN usuarios u2 ON ae2.id_usuario = u2.id_usuario 
+           WHERE u2.id_distrito = u.id_distrito ${dateFilterEncDist}) AS total_encuestas
+        FROM acciones_educativas ae
+        INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
+        ${dateFilterDistritos}
+        GROUP BY u.id_distrito
+        ORDER BY u.id_distrito ASC
+      `)
+
+      // Armar mapa para los 33 distritos completos
+      const distritosMap = {}
+      for (let i = 1; i <= 33; i++) {
+        distritosMap[i] = {
+          idsede: i,
+          distrito: `Distrito ${i}`,
+          total_acciones: 0,
+          sin_capturar: 0,
+          capturadas: 0,
+          finalizadas: 0,
+          total_actividades: 0,
+          canceladas: 0,
+          total_encuestas: 0,
+          porcentaje_avance: 0
+        }
+      }
+
+      for (const d of distritosQuery.recordset) {
+        const sedeNum = Number(d.idsede)
+        const tot = Number(d.total_acciones || 0)
+        const act = Number(d.total_actividades || 0)
+        const pct = tot > 0 ? Math.round((act / tot) * 100) : 0
+
+        const itemData = {
+          idsede: sedeNum,
+          distrito: sedeNum === 0 ? 'Central' : `Distrito ${sedeNum}`,
+          total_acciones: tot,
+          sin_capturar: Number(d.sin_capturar || 0),
+          capturadas: Number(d.capturadas || 0),
+          finalizadas: Number(d.finalizadas || 0),
+          total_actividades: act,
+          canceladas: Number(d.canceladas || 0),
+          total_encuestas: Number(d.total_encuestas || 0),
+          porcentaje_avance: pct
+        }
+
+        if (sedeNum >= 1 && sedeNum <= 33) {
+          distritosMap[sedeNum] = itemData
+        } else if (sedeNum === 0) {
+          distritosMap[0] = itemData
+        }
+      }
+
+      const distritosArray = Object.values(distritosMap).sort((a, b) => a.idsede - b.idsede)
+      const gm = globalQuery.recordset[0] || {}
+      const total_acciones = Number(gm.total_acciones || 0)
+      const sin_capturar = Number(gm.sin_capturar || 0)
+      const capturadas = Number(gm.capturadas || 0)
+      const finalizadas = Number(gm.finalizadas || 0)
+      const total_capturadas = Number(gm.total_capturadas || 0)
+      const total_encuestas = Number(gm.total_encuestas || 0)
+
+      return {
+        total_acciones,
+        sin_capturar,
+        capturadas,
+        finalizadas,
+        total_capturadas,
+        total_encuestas,
+        actividades_realizadas: total_capturadas,
+        actividades_pendientes: sin_capturar,
+        grafica_distritos: distritosArray,
+        anios_disponibles: aniosDisponibles
+      }
+    }
+  } catch (err) {
+    // Si falla o no existe tabla nueva, continúa con fallback legacy
   }
 
-  return {
-    ...globalMetrics,
-    grafica_distritos: distritosQuery.recordset
+  // Fallback con BD legacy
+  try {
+    const pool = await getPool()
+    const globalQuery = await pool.request().query(`
+      SELECT
+        COUNT(*) AS total_acciones,
+        ISNULL(SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END), 0) AS actividades_realizadas,
+        ISNULL(SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END), 0) AS actividades_pendientes,
+        (SELECT COUNT(*) FROM sisecycc2024.dbo.sisec_encuestas) AS total_encuestas
+      FROM sisecycc2024.dbo.sisec_talleres_intervenciones ti
+      WHERE ti.status IN (1, 2, 3)
+    `)
+
+    const distritosQuery = await pool.request().query(`
+      SELECT
+        u.idsede,
+        COUNT(*) as total_acciones,
+        SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END) as total_actividades,
+        SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END) as sin_capturar
+      FROM sisec_usuarios u
+      LEFT JOIN sisecycc2024.dbo.sisec_talleres_intervenciones ti 
+        ON u.idusuario = ti.idusuario
+      WHERE u.idsede BETWEEN 1 AND 33
+      GROUP BY u.idsede
+      ORDER BY u.idsede ASC
+    `)
+
+    const distritosMap = {}
+    for (let i = 1; i <= 33; i++) {
+      distritosMap[i] = {
+        idsede: i,
+        distrito: `Distrito ${i}`,
+        total_acciones: 0,
+        sin_capturar: 0,
+        capturadas: 0,
+        finalizadas: 0,
+        total_actividades: 0,
+        canceladas: 0,
+        total_encuestas: 0,
+        porcentaje_avance: 0
+      }
+    }
+
+    for (const d of (distritosQuery.recordset || [])) {
+      const s = Number(d.idsede)
+      if (s >= 1 && s <= 33) {
+        const tot = Number(d.total_acciones || 0)
+        const act = Number(d.total_actividades || 0)
+        distritosMap[s] = {
+          idsede: s,
+          distrito: `Distrito ${s}`,
+          total_acciones: tot,
+          sin_capturar: Number(d.sin_capturar || 0),
+          capturadas: act,
+          finalizadas: act,
+          total_actividades: act,
+          canceladas: 0,
+          total_encuestas: 0,
+          porcentaje_avance: tot > 0 ? Math.round((act / tot) * 100) : 0
+        }
+      }
+    }
+
+    const gm = globalQuery.recordset[0] || {}
+    const actRealizadas = Number(gm.actividades_realizadas || 0)
+    const actPendientes = Number(gm.actividades_pendientes || 0)
+    const totAcciones = Number(gm.total_acciones || (actRealizadas + actPendientes))
+
+    return {
+      total_acciones: totAcciones,
+      sin_capturar: actPendientes,
+      capturadas: actRealizadas,
+      finalizadas: actRealizadas,
+      total_capturadas: actRealizadas,
+      total_encuestas: Number(gm.total_encuestas || 0),
+      actividades_realizadas: actRealizadas,
+      actividades_pendientes: actPendientes,
+      grafica_distritos: Object.values(distritosMap).sort((a, b) => a.idsede - b.idsede)
+    }
+  } catch (e) {
+    const emptyDistritos = []
+    for (let i = 1; i <= 33; i++) {
+      emptyDistritos.push({
+        idsede: i,
+        distrito: `Distrito ${i}`,
+        total_acciones: 0,
+        sin_capturar: 0,
+        capturadas: 0,
+        finalizadas: 0,
+        total_actividades: 0,
+        canceladas: 0,
+        total_encuestas: 0,
+        porcentaje_avance: 0
+      })
+    }
+    return {
+      total_acciones: 0,
+      sin_capturar: 0,
+      capturadas: 0,
+      finalizadas: 0,
+      total_capturadas: 0,
+      total_encuestas: 0,
+      actividades_realizadas: 0,
+      actividades_pendientes: 0,
+      grafica_distritos: emptyDistritos
+    }
   }
 }

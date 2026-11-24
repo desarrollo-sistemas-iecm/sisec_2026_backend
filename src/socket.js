@@ -44,34 +44,40 @@ export const initSocket = (httpServer) => {
   })
 
   io.on('connection', (socket) => {
-    const { idUsuario, nombre, idsede, permiso, sesionId } = socket.usuario
+    const { idUsuario, id_usuario, nombre, usuario, idsede, permiso, sesionId } = socket.usuario || {}
+    const uid = Number(idUsuario || id_usuario || 0)
+    const uname = String(usuario || nombre || '').toLowerCase().trim()
 
     // Registrar en el mapa activo
-    usuariosConectados.set(Number(idUsuario), {
-      socketId: socket.id,
-      username: nombre,
-      idsede: Number(idsede),
-      idpermiso: Number(permiso),
-      sesionId
-    })
+    if (uid) {
+      usuariosConectados.set(uid, {
+        socketId: socket.id,
+        username: uname,
+        idsede: Number(idsede),
+        idpermiso: Number(permiso),
+        sesionId
+      })
+    }
 
     // Unir a sala privada y a salas por rol
-    socket.join(`usuario_${idUsuario}`)
+    if (uid) socket.join(`usuario_${uid}`)
     if (Number(permiso) === 1) socket.join('operadores')
     if (Number(permiso) === 2) socket.join('admins')
     if (Number(permiso) === 3) socket.join('superadmins')
 
-    logger.info(`[WS]       🔌 Usuario conectado: ${nombre} (Sede: ${idsede}) — Socket: ${socket.id}`)
+    logger.info(`[WS]       🔌 Usuario conectado: ${uname || uid} (Sede: ${idsede}) — Socket: ${socket.id}`)
 
     // Emitir presencia global a todos los clientes
     broadcastPresencia()
 
     socket.on('disconnect', () => {
-      const active = usuariosConectados.get(Number(idUsuario))
-      if (active && active.socketId === socket.id) {
-        usuariosConectados.delete(Number(idUsuario))
-        logger.info(`[WS]       🔌 Usuario desconectado: ${nombre} — Socket: ${socket.id}`)
-        broadcastPresencia()
+      if (uid) {
+        const active = usuariosConectados.get(uid)
+        if (active && active.socketId === socket.id) {
+          usuariosConectados.delete(uid)
+          logger.info(`[WS]       🔌 Usuario desconectado: ${uname || uid} — Socket: ${socket.id}`)
+          broadcastPresencia()
+        }
       }
     })
   })
@@ -87,11 +93,12 @@ export const getIo = () => {
   return io
 }
 
-// Emite la lista de ids de usuarios conectados a todos
+// Emite la lista de ids y usernames de usuarios conectados a todos
 const broadcastPresencia = () => {
   if (!io) return
   const conectados = Array.from(usuariosConectados.keys()).map(Number)
-  io.emit('usuarios:estado', conectados)
+  const conectadosUsernames = Array.from(usuariosConectados.values()).map(v => v.username).filter(Boolean)
+  io.emit('usuarios:estado', { ids: conectados, usernames: conectadosUsernames })
   io.to('superadmins').emit('sesiones_actualizadas', Array.from(usuariosConectados.values()))
 }
 
