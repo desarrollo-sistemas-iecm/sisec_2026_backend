@@ -20,7 +20,7 @@ export const getNotificaciones = async (idsede, idusuario, idpermiso) => {
         ISNULL(id_distrito_origen, 0) AS idsede_destino,
         ISNULL(id_usuario_destino, 0) AS idusuario_destino,
         CASE WHEN leido = 1 THEN 1 ELSE 0 END AS leida,
-        fecha_envio AS fecha_creacion
+        CONVERT(VARCHAR(19), fecha_envio, 120) AS fecha_creacion
       FROM mensajes_notificaciones
       WHERE 
         (id_usuario_destino IS NULL OR id_usuario_destino = 0 OR id_usuario_destino = @idusuario)
@@ -45,7 +45,7 @@ export const getSolicitudesPendientes = async () => {
         ISNULL(comentario_adicional, mensaje_base) AS mensaje,
         ISNULL(id_distrito_origen, 0) AS idsede_origen,
         CASE WHEN leido = 1 THEN 1 ELSE 0 END AS leida,
-        fecha_envio AS fecha_creacion
+        CONVERT(VARCHAR(19), fecha_envio, 120) AS fecha_creacion
       FROM mensajes_notificaciones
       WHERE estado_solicitud = 'PENDIENTE' AND (leido = 0 OR leido IS NULL)
       ORDER BY fecha_envio ASC

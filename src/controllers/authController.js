@@ -6,6 +6,7 @@ import { logger, logSession, logWarn, userTag, getPerfilName } from '../config/l
 import { verifyCredentials } from '../models/authModel.js'
 import { getNewPool, getPool, sql } from '../config/db.js'
 import { desconectarUsuario } from '../socket.js'
+import { MODULOS_DEFAULT_DISTRITO, MODULOS_DEFAULT_ADMIN, MODULOS_SISTEMA } from './permisosController.js'
 
 export const login = async (req, res, next) => {
   try {
@@ -51,20 +52,57 @@ export const login = async (req, res, next) => {
       logger.warn(`[AUTH] Advertencia al sincronizar sesión 2027: ${newDbErr.message}`)
     }
 
+    // Determinar módulos permitidos para el usuario
+    let modulosUsuario = []
+    try {
+      const pool = await getNewPool()
+      const permRes = await pool.request()
+        .input('id_usuario', sql.Int, user.idUsuario)
+        .query(`
+          SELECT DISTINCT p.id_modulo, m.codigo AS codigo_modulo
+          FROM rel_usuario_permisos p
+          LEFT JOIN cat_modulos m ON p.id_modulo = m.id_modulo
+          WHERE p.id_usuario = @id_usuario AND p.permitido = 1
+        `)
+      if (permRes.recordset.length > 0) {
+        modulosUsuario = permRes.recordset.map(row => {
+          if (row.codigo_modulo) return row.codigo_modulo.toLowerCase()
+          const matched = MODULOS_SISTEMA.find(m => m.id_modulo === row.id_modulo)
+          return matched ? matched.codigo : null
+        }).filter(Boolean)
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    if (modulosUsuario.length === 0) {
+      modulosUsuario = Number(user.permiso) === 1 ? [...MODULOS_DEFAULT_DISTRITO] : [...MODULOS_DEFAULT_ADMIN]
+    }
+
     const payload = {
       idUsuario: user.idUsuario,
       id_usuario: user.idUsuario,
       nombre: user.nombre,
-      idsede: user.idsede,
-      id_distrito: user.idsede,
+      idsede: (Number(user.permiso) >= 2 || user.idsede === 0 || user.usuario === 'admin') ? 0 : user.idsede,
+      id_distrito: (Number(user.permiso) >= 2 || user.idsede === 0 || user.usuario === 'admin') ? 0 : user.idsede,
       permiso: user.permiso,
       id_tipousuario: user.permiso,
+      modulos: modulosUsuario,
       sesionId
     }
 
     const token = jwt.sign(payload, env.jwt.secret, { expiresIn: env.jwt.expiresIn })
 
-    const mostrarAlertaLogin = true
+    let mostrarAlertaLogin = false
+    try {
+      const pool = await getNewPool()
+      const alertaRes = await pool.request().query("SELECT TOP 1 status FROM config_fechas_acceso WHERE tipo_alcance = 'alerta_login'")
+      if (alertaRes.recordset.length > 0) {
+        mostrarAlertaLogin = Boolean(alertaRes.recordset[0].status)
+      }
+    } catch (e) {
+      mostrarAlertaLogin = false
+    }
 
     logSession(`🟢 LOGIN ➜ ${user.nombre} (${usuario}) — ${getPerfilName(user.permiso)} | Sede=${user.idsede} — IP: ${ip}`)
     

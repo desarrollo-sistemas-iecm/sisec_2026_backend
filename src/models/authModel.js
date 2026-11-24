@@ -1,6 +1,6 @@
-// Auth model for SISEC CC 2027
+// Auth model for SISEC CC 2026 / 2027
 import bcrypt from 'bcryptjs'
-import { getNewPool, sql } from '../config/db.js'
+import { getNewPool, getPool, sql } from '../config/db.js'
 
 const isBcryptHash = (value = '') => value.startsWith('$2a$') || value.startsWith('$2b$') || value.startsWith('$2y$')
 
@@ -8,6 +8,7 @@ export const verifyCredentials = async (usuario, contrasena) => {
   const userInput = String(usuario ?? '').trim()
   const passInput = String(contrasena ?? '').trim()
 
+  // 1. Intentar en base de datos 2027 (tabla usuarios)
   try {
     const newPool = await getNewPool()
     const newReq = newPool.request()
@@ -40,9 +41,46 @@ export const verifyCredentials = async (usuario, contrasena) => {
         }
       }
     }
-    return null
   } catch (err) {
-    return null
+    // Continuar a fallback
   }
-}
 
+  // 2. Fallback en base de datos activa (tabla sisec_usuarios)
+  try {
+    const pool = await getPool()
+    const req = pool.request()
+    req.input('usuario', sql.VarChar(50), userInput)
+    const result = await req.query(`
+      SELECT idusuario, usuario, password, estado, idpermiso, idsede
+      FROM sisec_usuarios
+      WHERE usuario = @usuario AND estado = 1
+    `)
+
+    const userRow = result.recordset[0]
+    if (userRow) {
+      const stored = String(userRow.password ?? '').trim()
+      let valid = false
+      if (isBcryptHash(stored)) {
+        valid = await bcrypt.compare(passInput, stored)
+      } else {
+        valid = passInput === stored
+      }
+
+      if (valid) {
+        return {
+          idUsuario: userRow.idusuario,
+          id_usuario: userRow.idusuario,
+          idsede: userRow.idsede,
+          id_distrito: userRow.idsede,
+          permiso: userRow.idpermiso,
+          id_tipousuario: userRow.idpermiso,
+          nombre: userRow.usuario
+        }
+      }
+    }
+  } catch (errFallback) {
+    // ignore
+  }
+
+  return null
+}
