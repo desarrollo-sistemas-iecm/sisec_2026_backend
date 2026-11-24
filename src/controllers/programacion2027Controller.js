@@ -59,7 +59,10 @@ export const postProgramacion2027Endpoint = async (req, res, next) => {
     if (!nombre_cargo_persona_atendera?.trim()) return res.status(400).json({ success: false, message: 'El nombre y cargo del personal que atenderá es obligatorio.' })
 
     const id_usuario = req.user?.idusuario || req.user?.id_usuario || 1
-    const id_distrito = req.user?.idsede || req.user?.id_distrito || 1
+    const userPermiso = Number(req.user?.permiso || req.user?.idpermiso || 1)
+    const userSede = req.user?.idsede !== undefined ? Number(req.user.idsede) : (req.user?.id_distrito !== undefined ? Number(req.user.id_distrito) : 1)
+    // Si el usuario es administrador (permiso >= 2), superadmin o su sede es 0, la acción se liga a Central (0)
+    const id_distrito = (userPermiso >= 2 || userSede === 0 || req.user?.usuario === 'admin') ? 0 : userSede
 
     const idInsertado = await createAccionEducativa({
       con_convenio: !!con_convenio,
@@ -167,9 +170,19 @@ export const cancelarAccionEndpoint = async (req, res, next) => {
 
 export const getAccionesAdminEndpoint = async (req, res, next) => {
   try {
-    const { id_distrito, id_estado, fecha_desde, fecha_hasta } = req.query
+    const rol = Number(req.user?.permiso || req.user?.idpermiso || req.user?.id_tipousuario || 1)
+    const isPrivileged = rol >= 2 // 2 = Administrador, 3 = Super Administrador
+
+    let { id_distrito, id_estado, fecha_desde, fecha_hasta } = req.query
+
+    // Seguridad estricta: usuarios distritales (rol 1) únicamente pueden ver las acciones de su propio distrito
+    if (!isPrivileged) {
+      const userDistrito = Number(req.user?.idsede || req.user?.id_distrito || 0)
+      id_distrito = userDistrito
+    }
+
     const data = await listAllAccionesAdmin({
-      id_distrito: id_distrito ? Number(id_distrito) : undefined,
+      id_distrito: (id_distrito !== undefined && id_distrito !== null && id_distrito !== '') ? Number(id_distrito) : undefined,
       id_estado: id_estado ? Number(id_estado) : undefined,
       fecha_desde,
       fecha_hasta

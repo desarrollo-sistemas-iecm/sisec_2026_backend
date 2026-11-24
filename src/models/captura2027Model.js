@@ -83,7 +83,7 @@ export const guardarCapturaInicial = async (id_acciones_educativas, payload, fil
     reqCap.input('modalidad', sql.Bit, payload.modalidad ? 1 : 0)
     reqCap.input('fecha_realizacion_accion', sql.DateTime, payload.fecha_realizacion_accion || new Date())
     reqCap.input('duracion_hora', sql.VarChar(5), payload.duracion_hora || '01:00')
-    reqCap.input('duracion_real_actividad', sql.VarChar(5), payload.duracion_real_actividad || '01:00')
+    reqCap.input('duracion_real_actividad', sql.VarChar(5), String(payload.duracion_real_actividad || '1'))
 
     // Matriz de 5 géneros x 6 grupos de edad
     const generos = ['mujeres', 'hombres', 'no_binario', 'Otro', 'prefiero_no_decirlo']

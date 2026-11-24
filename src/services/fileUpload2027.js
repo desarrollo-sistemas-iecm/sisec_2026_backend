@@ -14,6 +14,18 @@ export const ensureDirectoryExists = (dirPath) => {
 }
 
 /**
+ * Resuelve el folio oficial determinista de la acción educativa (AE-DDXX-2027-YYYY)
+ */
+export const resolveFolioAccion = (idDistrito, idAccion, folioFromBody) => {
+  if (folioFromBody && typeof folioFromBody === 'string' && folioFromBody.trim().startsWith('AE-DD')) {
+    return folioFromBody.trim()
+  }
+  const formattedDistrito = String(idDistrito || 1).padStart(2, '0')
+  const formattedId = String(idAccion || 1).padStart(4, '0')
+  return `AE-DD${formattedDistrito}-2027-${formattedId}`
+}
+
+/**
  * Resuelve la ruta física para los archivos de una acción educativa
  * Estructura: uploads/2027/DD{distrito}/{folio_accion}/
  */
@@ -33,8 +45,16 @@ const storage2027 = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
       const idDistrito = req.user?.idsede || req.body?.id_distrito || 1
-      const folioAccion = req.body?.folio_accion_educativa || req.params?.id || 'PENDIENTE'
-      const folderPath = resolveAccionFolderPath(idDistrito, folioAccion)
+      const idAccion = req.params?.id || req.body?.id_acciones_educativas || 1
+      const folioAccion = resolveFolioAccion(idDistrito, idAccion, req.body?.folio_accion_educativa)
+      let folderPath = resolveAccionFolderPath(idDistrito, folioAccion)
+
+      // El archivo de encuestas consolidadas se guarda exclusivamente dentro de la subcarpeta Encuestas
+      if (file.fieldname === 'encuesta_satisfaccion_pdf') {
+        folderPath = path.join(folderPath, 'Encuestas')
+        ensureDirectoryExists(folderPath)
+      }
+
       cb(null, folderPath)
     } catch (error) {
       cb(error)
