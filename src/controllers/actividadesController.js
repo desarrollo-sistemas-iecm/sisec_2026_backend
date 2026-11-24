@@ -14,7 +14,11 @@ import { logger, logAction, logQuery, userTag } from '../config/logger.js'
 
 export const getAdminStats = async (req, res, next) => {
   try {
-    const data = await getAdminDashboardMetrics()
+    const { anio, mes } = req.query
+    const data = await getAdminDashboardMetrics({
+      anio: anio ? Number(anio) : undefined,
+      mes: mes ? Number(mes) : undefined
+    })
     return res.json({ success: true, data })
   } catch (error) {
     return next(error)
@@ -23,7 +27,14 @@ export const getAdminStats = async (req, res, next) => {
 
 export const getDashboardStats = async (req, res, next) => {
   try {
-    const data = await getDashboardMetrics(req.user.idsede)
+    const idsede = req.user?.idsede !== undefined && req.user?.idsede !== null
+      ? req.user.idsede
+      : (req.user?.id_distrito !== undefined ? req.user.id_distrito : 1)
+    const { anio, mes } = req.query
+    const data = await getDashboardMetrics(idsede, {
+      anio: anio ? Number(anio) : undefined,
+      mes: mes ? Number(mes) : undefined
+    })
     return res.json({ success: true, data })
   } catch (error) {
     return next(error)
