@@ -7,12 +7,14 @@ import {
   postGuardarCapturaEndpoint,
   postFinalizarAccionEndpoint,
   postEncuestaAccionEndpoint,
-  getEncuestasAccionEndpoint
+  getEncuestasAccionEndpoint,
+  getArchivoCapturaEndpoint
 } from '../controllers/captura2027Controller.js'
 
 const router = Router()
 
 router.get('/:id/detalle', auth, getCapturaDetailEndpoint)
+router.get('/:id/archivo/:tipo', auth, getArchivoCapturaEndpoint)
 
 // Guardar información y primeros 3 archivos (límite 10 MB cada uno)
 router.post(

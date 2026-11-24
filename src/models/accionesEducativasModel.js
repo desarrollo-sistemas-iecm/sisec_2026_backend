@@ -73,7 +73,8 @@ export const createAccionEducativa = async (payload) => {
   request.input('telefono_contacto', sql.VarChar(30), String(payload.telefono_contacto || '').slice(0, 30))
   request.input('num_personas', sql.Int, Number(payload.num_personas_atender || 0))
   request.input('personal_distrito', sql.VarChar(250), String(payload.nombre_cargo_persona_atendera || '').slice(0, 250))
-  request.input('id_distrito', sql.TinyInt, payload.id_distrito || 1)
+  const idDistritoParam = (payload.id_distrito !== undefined && payload.id_distrito !== null) ? Number(payload.id_distrito) : 0
+  request.input('id_distrito', sql.TinyInt, idDistritoParam)
 
   const res = await request.query(`
     INSERT INTO sisecycc2024.dbo.sisec_talleres_intervenciones (
@@ -112,6 +113,7 @@ export const listAccionesByDistrito = async (id_distrito) => {
         ca.nombre_accion,
         ca.color,
         cv.vertiente,
+        cv.color AS color_vertiente,
         ae.id_tipo_institucion,
         cti.descripcion AS tipo_institucion,
         ae.nombre_institucion,
@@ -131,6 +133,7 @@ export const listAccionesByDistrito = async (id_distrito) => {
         e.estado_accion,
         ae.motivo_cancelacion,
         ae.status,
+        u.id_distrito,
         c.id_captura,
         c.modalidad,
         c.fecha_realizacion_accion,
@@ -150,7 +153,16 @@ export const listAccionesByDistrito = async (id_distrito) => {
       INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
       LEFT JOIN captura c ON ae.id_acciones_educativas = c.id_acciones_educativas
       WHERE u.id_distrito = @id_distrito
-      ORDER BY ae.fecha_programada DESC, ae.id_acciones_educativas DESC
+      ORDER BY 
+        CASE ae.id_estado
+          WHEN 1 THEN 1
+          WHEN 2 THEN 2
+          WHEN 3 THEN 3
+          WHEN 4 THEN 4
+          ELSE 5
+        END ASC,
+        ae.fecha_programada DESC,
+        ae.id_acciones_educativas DESC
     `)
     return result.recordset
   }
@@ -162,7 +174,10 @@ export const listAccionesByDistrito = async (id_distrito) => {
   const result = await request.query(`
     SELECT 
       ti.idcurso AS id_acciones_educativas,
-      ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4)) AS folio_accion_educativa,
+      CASE 
+        WHEN ti.id_distrito = 0 THEN ('AE-CEN-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        ELSE ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+      END AS folio_accion_educativa,
       ti.convenio AS con_convenio,
       ti.idcatcurso AS id_accion,
       COALESCE(cc.descripcion, 'Acción Educativa') AS nombre_accion,
@@ -201,17 +216,17 @@ export const listAccionesByDistrito = async (id_distrito) => {
       }
     }
 
-    const matchedBase = ACCIONES_EDUCATIVAS_BASE[(row.id_accion - 1) % ACCIONES_EDUCATIVAS_BASE.length] || ACCIONES_EDUCATIVAS_BASE[0]
+    const clave = 'AE-' + String(row.id_accion || 1).padStart(2, '0')
 
     return {
       id_acciones_educativas: row.id_acciones_educativas,
       folio_accion_educativa: row.folio_accion_educativa,
       con_convenio: row.con_convenio === 1,
       id_accion: row.id_accion,
-      clave_accion: matchedBase.clave,
-      nombre_accion: matchedBase.nombre,
-      vertiente: matchedBase.vertiente,
-      color: matchedBase.color,
+      clave_accion: clave,
+      nombre_accion: row.nombre_accion || 'Acción Educativa',
+      vertiente: 'General',
+      color: '#6B2D8B',
       tipo_institucion: 'Espacio Educativo',
       nombre_institucion: row.nombre_institucion,
       calle_numero: 'Domicilio registrado',
@@ -318,6 +333,7 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
         ca.nombre_accion,
         ca.color,
         cv.vertiente,
+        cv.color AS color_vertiente,
         ae.id_tipo_institucion,
         cti.descripcion AS tipo_institucion,
         ae.nombre_institucion,
@@ -338,7 +354,7 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
         ae.motivo_cancelacion,
         ae.status,
         u.id_distrito,
-        d.distrito,
+        CASE WHEN u.id_distrito = 0 THEN 'Central' ELSE d.distrito END AS distrito,
         c.id_captura,
         c.modalidad,
         c.fecha_realizacion_accion,
@@ -361,7 +377,7 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
       WHERE 1=1
     `
 
-    if (filtros.id_distrito) {
+    if (filtros.id_distrito !== undefined && filtros.id_distrito !== null && filtros.id_distrito !== '') {
       request.input('id_distrito', sql.Int, Number(filtros.id_distrito))
       query += ` AND u.id_distrito = @id_distrito`
     }
@@ -378,7 +394,16 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
       query += ` AND ae.fecha_programada <= @fecha_hasta`
     }
 
-    query += ` ORDER BY ae.fecha_programada DESC, ae.id_acciones_educativas DESC`
+    query += ` ORDER BY 
+      CASE ae.id_estado
+        WHEN 1 THEN 1
+        WHEN 2 THEN 2
+        WHEN 3 THEN 3
+        WHEN 4 THEN 4
+        ELSE 5
+      END ASC,
+      ae.fecha_programada DESC,
+      ae.id_acciones_educativas DESC`
     const result = await request.query(query)
     return result.recordset
   }
@@ -389,7 +414,10 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
   let query = `
     SELECT 
       ti.idcurso AS id_acciones_educativas,
-      ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4)) AS folio_accion_educativa,
+      CASE 
+        WHEN ti.id_distrito = 0 THEN ('AE-CEN-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        ELSE ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+      END AS folio_accion_educativa,
       ti.convenio AS con_convenio,
       ti.idcatcurso AS id_accion,
       COALESCE(cc.descripcion, 'Acción Educativa') AS nombre_accion,
@@ -412,7 +440,7 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
     WHERE 1=1
   `
 
-  if (filtros.id_distrito) {
+  if (filtros.id_distrito !== undefined && filtros.id_distrito !== null && filtros.id_distrito !== '') {
     request.input('idsede', sql.TinyInt, Number(filtros.id_distrito))
     query += ` AND (ti.id_distrito = @idsede OR u.idsede = @idsede)`
   }
@@ -444,17 +472,17 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
       }
     }
 
-    const matchedBase = ACCIONES_EDUCATIVAS_BASE[(row.id_accion - 1) % ACCIONES_EDUCATIVAS_BASE.length] || ACCIONES_EDUCATIVAS_BASE[0]
+    const clave = 'AE-' + String(row.id_accion || 1).padStart(2, '0')
 
     return {
       id_acciones_educativas: row.id_acciones_educativas,
       folio_accion_educativa: row.folio_accion_educativa,
       con_convenio: row.con_convenio === 1,
       id_accion: row.id_accion,
-      clave_accion: matchedBase.clave,
-      nombre_accion: matchedBase.nombre,
-      vertiente: matchedBase.vertiente,
-      color: matchedBase.color,
+      clave_accion: clave,
+      nombre_accion: row.nombre_accion || 'Acción Educativa',
+      vertiente: 'General',
+      color: '#6B2D8B',
       tipo_institucion: 'Espacio Educativo',
       nombre_institucion: row.nombre_institucion,
       calle_numero: 'Domicilio registrado',
@@ -467,8 +495,9 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
       fecha_programada: row.fecha_programada,
       hora_programada: row.hora_programada || '10:00',
       nombre_cargo_persona_atendera: 'Personal comisionado',
-      id_distrito: row.id_distrito || row.idsede || 1,
-      distrito: row.id_distrito || row.idsede || 1,
+      id_distrito: (row.id_distrito !== undefined && row.id_distrito !== null) ? row.id_distrito : (row.idsede !== undefined ? row.idsede : 0),
+      distrito: (row.id_distrito === 0 || row.idsede === 0) ? 'Central' : (row.id_distrito || row.idsede || 1),
+      es_central: row.id_distrito === 0 || row.idsede === 0,
       id_estado,
       estado_accion,
       motivo_cancelacion: row.motivo_cancelacion,
