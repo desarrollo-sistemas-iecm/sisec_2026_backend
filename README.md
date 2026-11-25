@@ -7,7 +7,7 @@
 
 ---
 
-## 📋 Resumen del Módulo
+## Resumen del Módulo
 
 El backend de **SISEC CC** es una API RESTful de alto rendimiento diseñada para la gestión, calendarización, captura de evidencias, aplicación de encuestas y auditoría de actividades de educación cívica para las **33 Direcciones Distritales** y Oficinas Centrales del IECM.
 
@@ -15,7 +15,7 @@ Incorpora comunicación bidireccional en tiempo real a través de **Socket.IO** 
 
 ---
 
-## ⚡ Estructura del Proyecto Backend
+## Estructura del Proyecto Backend
 
 ```
 backend/
@@ -60,7 +60,7 @@ backend/
 
 ---
 
-## 🗄️ Arquitectura de Base de Datos (Dual-Pool)
+## Arquitectura de Base de Datos (Dual-Pool)
 
 El backend implementa un patrón **Dual Connection Pool** administrado en `src/config/db.js`:
 
@@ -78,7 +78,7 @@ El backend implementa un patrón **Dual Connection Pool** administrado en `src/c
 
 ---
 
-## 📡 Endpoints Principales de la API
+## Endpoints Principales de la API
 
 | Módulo | Método | Endpoint | Descripción | Rol Mínimo |
 | :--- | :---: | :--- | :--- | :---: |
@@ -105,7 +105,7 @@ El backend implementa un patrón **Dual Connection Pool** administrado en `src/c
 
 ---
 
-## 🧪 Pruebas de Carga y Concurrencia (Apache JMeter)
+## Pruebas de Carga y Concurrencia (Apache JMeter)
 
 El backend cuenta con un plan de pruebas automatizado de alta fidelidad:
 * **Archivo de prueba:** `sicec_2026_jmeter_test_plan.jmx`
@@ -119,29 +119,15 @@ El backend cuenta con un plan de pruebas automatizado de alta fidelidad:
 
 ---
 
-## 🚀 Puesta en Marcha (Desarrollo y Producción)
+## Puesta en Marcha (Desarrollo y Producción)
 
-### Variables de Entorno (`.env.development`)
-```ini
-NODE_ENV=development
-PORT=3013
-APP_URL=https://aplicaciones2qa.iecm.mx/sisec_2026
-BACKEND_URL=https://aplicaciones2qa.iecm.mx/sisec_2026
+### Variables de Entorno
+Configurar el archivo `.env` en la raíz del backend definiendo los parámetros correspondientes para el entorno de trabajo:
 
-# Base de Datos 2027
-DB_SERVER=145.0.40.72
-DB_DATABASE=sisec_2027_dev
-DB_USER=user1
-DB_PASSWORD=u53r1
-DB_PORT=1433
-DB_ENCRYPT=false
-DB_TRUST_SERVER_CERT=true
-
-# JWT
-JWT_SECRET=clave_super_secreta_dev
-JWT_EXPIRES_IN=8h
-CORS_ORIGIN=http://localhost:5173,https://aplicaciones2qa.iecm.mx
-```
+* Parámetros de servidor (`PORT`, `NODE_ENV`, `APP_URL`, `BACKEND_URL`).
+* Parámetros de conexión a SQL Server (`DB_SERVER`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`, `DB_PORT`, `DB_ENCRYPT`, `DB_TRUST_SERVER_CERT`).
+* Configuración de autenticación (`JWT_SECRET`, `JWT_EXPIRES_IN`).
+* Orígenes autorizados (`CORS_ORIGIN`).
 
 ### Comandos de Ejecución
 ```bash
