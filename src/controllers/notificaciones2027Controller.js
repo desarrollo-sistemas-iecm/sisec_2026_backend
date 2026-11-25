@@ -120,6 +120,42 @@ export const postEnviarNotificacionEndpoint = async (req, res, next) => {
       logger.warn(`[WS] No se pudo emitir evento notificacion:nueva: ${wsErr.message}`)
     }
 
+    // Despacho inmediato a Telegram si la notificación va dirigida al Super Administrador
+    const esParaSuperadmin = Number(id_tipousuario_destino) === 3 || (!id_tipousuario_destino && !id_usuario_destino)
+    if (esParaSuperadmin) {
+      import('../services/telegram.service.js')
+        .then(async ({ enviarMensajeAdminASuperadminTelegram }) => {
+          let folio = null
+          if (id_acciones_educativas) {
+            try {
+              const { getNewPool, sql } = await import('../config/db.js')
+              const p = await getNewPool()
+              const r = await p.request().input('id', sql.Int, id_acciones_educativas)
+                .query('SELECT folio_accion_educativa FROM acciones_educativas WHERE id_acciones_educativas = @id')
+              folio = r.recordset[0]?.folio_accion_educativa
+            } catch (err) {}
+          }
+
+          const userRol = Number(req.user?.permiso || req.user?.id_tipousuario || 1) === 3
+            ? 'Superadmin'
+            : Number(req.user?.permiso || req.user?.id_tipousuario || 1) === 2
+              ? 'Administrador'
+              : 'Operador Distrital'
+
+          await enviarMensajeAdminASuperadminTelegram({
+            usuarioOrigen: req.user?.usuario || req.user?.nombre,
+            nombreOrigen: req.user?.nombre_completo || req.user?.usuario,
+            rolOrigen: userRol,
+            distritoOrigen: id_distrito_origen,
+            titulo,
+            mensaje: mensaje_base,
+            comentarioAdicional: comentarioLimpio,
+            folioAccion: folio
+          })
+        })
+        .catch(tErr => logger.warn(`[TELEGRAM] No se pudo enviar notificación de admin a superadmin: ${tErr.message}`))
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Notificación enviada correctamente.',
