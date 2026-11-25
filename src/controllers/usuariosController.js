@@ -5,10 +5,24 @@ import { getPool, sql } from '../config/db.js'
 export const getUsuarios = async (req, res, next) => {
   try {
     const data = await listUsuarios()
-    const enrichedData = data.map(u => ({
-      ...u,
-      conectado: usuariosConectados.has(Number(u.idusuario))
-    }))
+    const currentUserId = Number(req.user?.idUsuario || req.user?.id_usuario || 0)
+    const currentUsername = String(req.user?.usuario || req.user?.nombre || '').toLowerCase().trim()
+
+    const enrichedData = data.map(u => {
+      const uid = Number(u.idusuario || u.id_usuario || 0)
+      const uname = String(u.usuario || '').toLowerCase().trim()
+
+      const isCurrentOnline = 
+        usuariosConectados.has(uid) ||
+        Array.from(usuariosConectados.values()).some(v => String(v.username).toLowerCase() === uname) ||
+        (currentUserId && uid === currentUserId) ||
+        (currentUsername && uname === currentUsername)
+
+      return {
+        ...u,
+        conectado: Boolean(isCurrentOnline)
+      }
+    })
     return res.json({ success: true, data: enrichedData })
   } catch (error) {
     return next(error)

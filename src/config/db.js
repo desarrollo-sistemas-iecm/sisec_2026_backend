@@ -15,7 +15,8 @@ const createConfig = (dbEnv) => ({
   port: dbEnv.port,
   options: {
     encrypt: false,
-    trustServerCertificate: true
+    trustServerCertificate: true,
+    useUTC: false
   }
 })
 

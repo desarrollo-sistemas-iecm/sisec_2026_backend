@@ -16,14 +16,14 @@ export const getCatalogosProgramacion2027 = async () => {
 
   const [accionesRes, vertientesRes, demarcacionesRes, tiposInstitucionRes, estadosRes, generosRes] = await Promise.all([
     pool.request().query(`
-      SELECT a.id_accion, a.clave_accion, a.nombre_accion, a.id_vertiente, a.color, v.vertiente
+      SELECT a.id_accion, a.clave_accion, a.nombre_accion, a.id_vertiente, a.color, v.vertiente, v.color AS color_vertiente
       FROM cat_acciones a
       INNER JOIN cat_vertientes v ON a.id_vertiente = v.id_vertiente
       WHERE a.status = 1
       ORDER BY a.id_accion ASC
     `),
     pool.request().query(`
-      SELECT id_vertiente, vertiente 
+      SELECT id_vertiente, vertiente, color 
       FROM cat_vertientes 
       WHERE status = 1 
       ORDER BY id_vertiente ASC
