@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "seed:capturas": "node src/seeds/seed_capturas_2027.js",
     "test": "jest"
   },
   "dependencies": {
