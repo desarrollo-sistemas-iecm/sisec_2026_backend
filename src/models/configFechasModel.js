@@ -10,7 +10,7 @@ export const getConfigFechas = async () => {
         tipo_alcance AS modulo,
         format(fecha_hora_apertura, 'yyyy-MM-dd') as fecha_inicio,
         format(fecha_hora_cierre, 'yyyy-MM-dd') as fecha_fin,
-        format(fecha_hora_cierre, 'yyyy-MM-dd') as fecha_limite,
+        format(ISNULL(fecha_limite, DATEADD(day, 5, ISNULL(fecha_alta, GETDATE()))), 'yyyy-MM-dd') as fecha_limite,
         status AS habilitado,
         ISNULL(id_distrito, 0) AS idsede,
         ISNULL(fecha_modif, fecha_alta) AS fecha_actualizado
@@ -27,18 +27,27 @@ export const updateConfigFechas = async (modulo, fecha_inicio, fecha_fin, habili
     const pool = await getNewPool()
     const request = pool.request()
 
+    // Si fecha_limite no viene o está vacía, calculamos por defecto 5 días a partir de hoy
+    let finalFechaLimite = fecha_limite
+    if (!finalFechaLimite) {
+      const d = new Date()
+      d.setDate(d.getDate() + 5)
+      finalFechaLimite = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+
     request.input('descripcion', sql.VarChar(200), `Configuración ${modulo}`)
     request.input('tipo_alcance', sql.VarChar(50), modulo)
     request.input('id_distrito', sql.Int, Number(idsede) || 0)
     request.input('fecha_apertura', sql.DateTime, `${fecha_inicio} 00:00:00`)
     request.input('fecha_cierre', sql.DateTime, `${fecha_fin} 23:59:59`)
+    request.input('fecha_limite', sql.DateTime, `${finalFechaLimite} 23:59:59`)
     request.input('status', sql.Bit, habilitado ? 1 : 0)
 
     await request.query(`
       INSERT INTO config_fechas_acceso (
-        descripcion, tipo_alcance, id_distrito, fecha_hora_apertura, fecha_hora_cierre, permite_superadmin, status, fecha_alta
+        descripcion, tipo_alcance, id_distrito, fecha_hora_apertura, fecha_hora_cierre, fecha_limite, permite_superadmin, status, fecha_alta
       ) VALUES (
-        @descripcion, @tipo_alcance, @id_distrito, @fecha_apertura, @fecha_cierre, 1, @status, GETDATE()
+        @descripcion, @tipo_alcance, @id_distrito, @fecha_apertura, @fecha_cierre, @fecha_limite, 1, @status, GETDATE()
       )
     `)
   } catch (error) {
@@ -70,6 +79,7 @@ export const isFechaHabilitada = async (modulo, fechaSeleccionada, idsede = 0) =
       WHERE status = 1
         AND (id_distrito = 0 OR id_distrito IS NULL OR id_distrito = @id_distrito)
         AND @fecha BETWEEN CAST(fecha_hora_apertura AS DATE) AND CAST(fecha_hora_cierre AS DATE)
+        AND (fecha_limite IS NULL OR CAST(GETDATE() AS DATE) <= CAST(fecha_limite AS DATE))
     `)
 
     if (res.recordset.length > 0) {

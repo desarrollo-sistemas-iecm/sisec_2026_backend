@@ -9,18 +9,18 @@ export const listConfigFechas = async (req, res, next) => {
     const data = allData.filter(d => d.modulo !== 'manual' && d.modulo !== 'alerta_login' && d.modulo !== 'ultima_actualizacion' && d.modulo !== 'ultima_act')
 
     const userPermiso = Number(req.user.permiso || req.user.idpermiso)
-    const userSede = Number(req.user.idsede)
+    const userSede = Number(req.user.idsede ?? req.user.id_distrito ?? 0)
 
     if (userPermiso === 1) {
       // Filtrar para obtener solo la aplicable al operador
       const filtered = []
-      const modulos = ['programacion', 'captura']
+      const modulos = ['programacion', 'captura', 'ambos']
       for (const mod of modulos) {
-        const configsMod = data.filter(d => d.modulo === mod)
-        const specific = configsMod.find(d => d.idsede === userSede)
-        const global = configsMod.find(d => d.idsede === 0)
-        if (specific) filtered.push(specific)
-        if (global) filtered.push(global)
+        const configsMod = data.filter(d => d.modulo === mod || d.modulo === 'ambos')
+        const specific = configsMod.find(d => Number(d.idsede) === userSede)
+        const global = configsMod.find(d => Number(d.idsede) === 0)
+        if (specific && !filtered.some(f => f.id === specific.id)) filtered.push(specific)
+        if (global && !filtered.some(f => f.id === global.id)) filtered.push(global)
       }
       return res.json({ success: true, data: filtered })
     }
@@ -57,6 +57,22 @@ export const saveConfigFechas = async (req, res, next) => {
       idusuario_destino: 0
     })
 
+    // Emitir socket en vivo para actualización inmediata de radiales
+    try {
+      const io = getIo()
+      if (io) {
+        io.emit('fechas:actualizadas', {
+          idsede: Number(idsede),
+          modulo,
+          fecha_inicio,
+          fecha_fin,
+          fecha_limite
+        })
+      }
+    } catch (wsErr) {
+      // ignore
+    }
+
     return res.json({ success: true, message: 'Configuración actualizada con éxito' })
   } catch (error) {
     return next(error)
@@ -67,6 +83,12 @@ export const deleteConfigFecha = async (req, res, next) => {
   try {
     const id = Number(req.params.id)
     await deleteConfigFechasById(id)
+    try {
+      const io = getIo()
+      if (io) {
+        io.emit('fechas:actualizadas', { id, deleted: true })
+      }
+    } catch (wsErr) {}
     return res.json({ success: true, message: 'Excepción de distrito eliminada' })
   } catch (error) {
     return next(error)
