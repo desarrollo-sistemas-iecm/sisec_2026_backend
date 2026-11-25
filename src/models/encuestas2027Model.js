@@ -27,13 +27,21 @@ export const registrarEncuesta2027 = async (payload) => {
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'encuestas'
   `)
 
+  let folioAccion = payload.folio_accion_educativa
+  if (!folioAccion) {
+    const fRes = await pool.request()
+      .input('id', sql.Int, payload.id_acciones_educativas)
+      .query(`SELECT folio_accion_educativa FROM acciones_educativas WHERE id_acciones_educativas = @id`)
+    folioAccion = fRes.recordset[0]?.folio_accion_educativa || 'AE'
+  }
+
   const consecutivo = await getSiguienteConsecutivoEncuesta(payload.id_acciones_educativas)
-  const folioEncuesta = `ENC-${payload.folio_accion_educativa || 'AE'}-${consecutivo}`
+  const folioEncuesta = `ENC-${folioAccion}-${consecutivo}`
 
   if (checkTable.recordset.length > 0) {
     const request = pool.request()
     request.input('id_acciones_educativas', sql.Int, payload.id_acciones_educativas)
-    request.input('folio_accion_educativa', sql.VarChar(30), payload.folio_accion_educativa)
+    request.input('folio_accion_educativa', sql.VarChar(30), folioAccion)
     request.input('folio_encuesta', sql.VarChar(30), folioEncuesta)
     request.input('consecutivo_encuesta', sql.Int, consecutivo)
     request.input('tipo_encuesta', sql.Int, Number(payload.tipo_encuesta || 1))

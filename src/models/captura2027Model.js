@@ -52,22 +52,59 @@ export const getCapturaByAccion = async (id_acciones_educativas) => {
   return result.recordset[0] || null
 }
 
+export const getSiguienteFolioAccion = async (id_distrito) => {
+  const pool = await getNewPool()
+  const distNum = Number(id_distrito !== undefined && id_distrito !== null ? id_distrito : 1)
+  const distStr = String(distNum).padStart(2, '0')
+  const prefix = distNum === 0 ? 'AE-CEN-2027-' : `AE-DD${distStr}-2027-`
+
+  const req = pool.request()
+  req.input('distrito', sql.Int, distNum)
+  req.input('prefixPattern', sql.VarChar(30), `${prefix}%`)
+
+  const result = await req.query(`
+    SELECT ISNULL(MAX(TRY_CAST(RIGHT(ae.folio_accion_educativa, 4) AS INT)), 0) + 1 AS siguiente
+    FROM acciones_educativas ae
+    INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
+    WHERE u.id_distrito = @distrito
+      AND ae.folio_accion_educativa LIKE @prefixPattern
+  `)
+
+  const siguiente = Number(result.recordset[0]?.siguiente || 1)
+  return `${prefix}${String(siguiente).padStart(4, '0')}`
+}
+
 export const guardarCapturaInicial = async (id_acciones_educativas, payload, filenames, id_distrito) => {
   const pool = await getNewPool()
   const checkTable = await pool.request().query(`
     SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'captura'
   `)
 
-  // Generar folio inmutable de la acción si aún no existe
-  const formattedDistrito = String(id_distrito || 1).padStart(2, '0')
-  const formattedId = String(id_acciones_educativas).padStart(4, '0')
-  const nuevoFolioAccion = `AE-DD${formattedDistrito}-2027-${formattedId}`
-
   if (checkTable.recordset.length > 0) {
-    // 1. Asignar folio inmutable y actualizar estado a Capturada (2)
+    // 1. Obtener si la acción ya tiene folio asignado o el distrito real del usuario que la creó
+    const reqCheck = pool.request()
+    reqCheck.input('id', sql.Int, id_acciones_educativas)
+    const checkRes = await reqCheck.query(`
+      SELECT ae.folio_accion_educativa, u.id_distrito
+      FROM acciones_educativas ae
+      INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
+      WHERE ae.id_acciones_educativas = @id
+    `)
+
+    const rowAccion = checkRes.recordset[0]
+    const distritoReal = (rowAccion?.id_distrito !== undefined && rowAccion?.id_distrito !== null)
+      ? rowAccion.id_distrito
+      : (id_distrito !== undefined && id_distrito !== null ? id_distrito : 1)
+
+    let folioFinal = rowAccion?.folio_accion_educativa
+    if (!folioFinal) {
+      folioFinal = await getSiguienteFolioAccion(distritoReal)
+    }
+
+    // 2. Asignar folio inmutable y actualizar estado a Capturada (2)
     const reqAccion = pool.request()
     reqAccion.input('id', sql.Int, id_acciones_educativas)
-    reqAccion.input('folio', sql.VarChar(30), nuevoFolioAccion)
+    reqAccion.input('folio', sql.VarChar(30), folioFinal)
     await reqAccion.query(`
       UPDATE acciones_educativas
       SET 
@@ -153,11 +190,15 @@ export const guardarCapturaInicial = async (id_acciones_educativas, payload, fil
       END
     `)
 
-    return { folio_accion_educativa: nuevoFolioAccion, id_estado: 2, estado_accion: 'Capturada' }
+    return { folio_accion_educativa: folioFinal, id_estado: 2, estado_accion: 'Capturada' }
   }
 
   // Fallback hacia tabla existente
   const fallbackPool = await getPool()
+  const formattedDistrito = String(id_distrito || 1).padStart(2, '0')
+  const formattedId = String(id_acciones_educativas).padStart(4, '0')
+  const nuevoFolioAccionFallback = `AE-DD${formattedDistrito}-2027-${formattedId}`
+
   const request = fallbackPool.request()
   request.input('idcurso', sql.Int, id_acciones_educativas)
   request.input('modalidad', sql.Bit, payload.modalidad ? 1 : 0)
@@ -180,7 +221,7 @@ export const guardarCapturaInicial = async (id_acciones_educativas, payload, fil
     WHERE idcurso = @idcurso
   `)
 
-  return { folio_accion_educativa: nuevoFolioAccion, id_estado: 2, estado_accion: 'Capturada' }
+  return { folio_accion_educativa: nuevoFolioAccionFallback, id_estado: 2, estado_accion: 'Capturada' }
 }
 
 export const finalizarAccion = async (id_acciones_educativas, archivoEncuestas) => {

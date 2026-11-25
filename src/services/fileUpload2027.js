@@ -17,7 +17,7 @@ export const ensureDirectoryExists = (dirPath) => {
  * Resuelve el folio oficial determinista de la acción educativa (AE-DDXX-2027-YYYY)
  */
 export const resolveFolioAccion = (idDistrito, idAccion, folioFromBody) => {
-  if (folioFromBody && typeof folioFromBody === 'string' && folioFromBody.trim().startsWith('AE-DD')) {
+  if (folioFromBody && typeof folioFromBody === 'string' && folioFromBody.trim().startsWith('AE-')) {
     return folioFromBody.trim()
   }
   const formattedDistrito = String(idDistrito || 1).padStart(2, '0')
