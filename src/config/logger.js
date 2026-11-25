@@ -6,11 +6,12 @@ const { createLogger, format, transports } = winston;
 const { combine, timestamp, printf } = format;
 
 // ─── ANSI Color Codes ────────────────────────────────────────────
-const C = {
+export const C = {
   reset:   '\x1b[0m',
   bold:    '\x1b[1m',
   dim:     '\x1b[2m',
   // Foreground
+  black:   '\x1b[30m',
   green:   '\x1b[32m',
   blue:    '\x1b[34m',
   cyan:    '\x1b[36m',
@@ -25,6 +26,8 @@ const C = {
   cyanBright:   '\x1b[96m',
   yellowBright: '\x1b[93m',
   redBright:    '\x1b[91m',
+  magentaBright:'\x1b[95m',
+  whiteBright:  '\x1b[97m',
   // Background
   bgGreen:  '\x1b[42m',
   bgBlue:   '\x1b[44m',
@@ -32,6 +35,8 @@ const C = {
   bgRed:    '\x1b[41m',
   bgCyan:   '\x1b[46m',
   bgMagenta:'\x1b[45m',
+  bgWhite:  '\x1b[47m',
+  bgBlack:  '\x1b[40m'
 };
 
 // ─── Perfiles de usuario ──────────────────────────────────────────
@@ -79,27 +84,57 @@ export const sanitizeErrorText = (text) => {
   return sanitized;
 };
 
-// ─── Formato para consola (con colores) ──────────────────────────
+// ─── Formato para consola (con colores e insignias de alta legibilidad) ──────────────────────────
 const consoleFormat = printf(({ level, message, timestamp, category }) => {
   const ts = `${C.gray}${timestamp}${C.reset}`;
   const sanitizedMsg = sanitizeErrorText(message);
 
-  switch (category) {
-    case 'session':
-      return `${ts} ${C.bgGreen}${C.bold} SESIÓN ${C.reset} ${C.greenBright}${sanitizedMsg}${C.reset}`;
-    case 'action':
-      return `${ts} ${C.bgBlue}${C.bold} ACCIÓN ${C.reset} ${C.blueBright}${sanitizedMsg}${C.reset}`;
-    case 'query':
-      return `${ts} ${C.bgCyan}${C.bold} CONSULT ${C.reset} ${C.cyanBright}${sanitizedMsg}${C.reset}`;
-    case 'warn':
-      return `${ts} ${C.bgYellow}${C.bold} AVISO  ${C.reset} ${C.yellowBright}${sanitizedMsg}${C.reset}`;
-    case 'error':
-      return `${ts} ${C.bgRed}${C.bold} ERROR  ${C.reset} ${C.redBright}${sanitizedMsg}${C.reset}`;
-    case 'system':
-      return `${ts} ${C.bgMagenta}${C.bold} SYSTEM ${C.reset} ${C.magenta}${sanitizedMsg}${C.reset}`;
-    default:
-      return `${ts} [${level}]: ${sanitizedMsg}`;
+  // 1. Manejo especializado de Errores (sin caracteres corruptores)
+  if (category === 'error' || level === 'error') {
+    return `${ts} ${C.bgRed}${C.bold}${C.white} ERROR ${C.reset} ${sanitizedMsg}`;
   }
+
+  // 2. Insignias por categoría
+  if (category === 'session') {
+    return `${ts} ${C.bgGreen}${C.bold}${C.white} SESION ${C.reset} ${C.greenBright}${sanitizedMsg}${C.reset}`;
+  }
+  if (category === 'action') {
+    return `${ts} ${C.bgBlue}${C.bold}${C.white} ACCION ${C.reset} ${C.blueBright}${sanitizedMsg}${C.reset}`;
+  }
+  if (category === 'query') {
+    return `${ts} ${C.bgCyan}${C.bold}${C.black} CONSULTA ${C.reset} ${C.cyanBright}${sanitizedMsg}${C.reset}`;
+  }
+  if (category === 'warn') {
+    return `${ts} ${C.bgYellow}${C.bold}${C.black} AVISO ${C.reset} ${C.yellowBright}${sanitizedMsg}${C.reset}`;
+  }
+  if (category === 'system') {
+    return `${ts} ${C.bgMagenta}${C.bold}${C.white} SISTEMA ${C.reset} ${C.magentaBright}${sanitizedMsg}${C.reset}`;
+  }
+
+  // 3. Formato dinámico para tags en mensajes generales
+  let formatted = sanitizedMsg;
+  if (formatted.includes('[BD]')) {
+    formatted = formatted.replace('[BD]', `${C.bgCyan}${C.bold}${C.black} BD ${C.reset} ${C.cyanBright}`) + C.reset;
+    return `${ts} ${formatted}`;
+  }
+  if (formatted.includes('[TELEGRAM]')) {
+    formatted = formatted.replace('[TELEGRAM]', `${C.bgBlue}${C.bold}${C.white} TELEGRAM ${C.reset} ${C.blueBright}`) + C.reset;
+    return `${ts} ${formatted}`;
+  }
+  if (formatted.includes('[WS]')) {
+    formatted = formatted.replace('[WS]', `${C.bgMagenta}${C.bold}${C.white} SOCKET.IO ${C.reset} ${C.magentaBright}`) + C.reset;
+    return `${ts} ${formatted}`;
+  }
+  if (formatted.includes('[AUTH]')) {
+    formatted = formatted.replace('[AUTH]', `${C.bgYellow}${C.bold}${C.black} AUTH ${C.reset} ${C.yellowBright}`) + C.reset;
+    return `${ts} ${formatted}`;
+  }
+  if (formatted.includes('[INFO]')) {
+    formatted = formatted.replace('[INFO]', `${C.greenBright}[INFO]${C.reset}`);
+    return `${ts} ${formatted}`;
+  }
+
+  return `${ts} ${C.cyan}[${level}]${C.reset}: ${formatted}`;
 });
 
 // ─── Formato para archivos (sin colores) ─────────────────────────
@@ -178,7 +213,7 @@ export const logWarn = (message) => {
     .catch(err => console.error('Error al enviar advertencia a Telegram:', err.message));
 };
 
-/** 🔴 Error */
+/** 🔴 Error con detalle explícito y ubicación precisa */
 export const logError = (errorData, meta = {}) => {
   let message = '';
   let structuredData = null;
@@ -187,11 +222,28 @@ export const logError = (errorData, meta = {}) => {
     message = errorData.message || errorData.error || 'Error sin mensaje';
     const where = errorData.where || errorData.origen || meta.where || 'Módulo interno / Servidor';
     const user = errorData.user || errorData.usuario || '';
-    const stack = errorData.stack ? `\n   ${errorData.stack.split('\n').slice(0, 4).join('\n   ')}` : '';
+    const status = errorData.status ? `[Status ${errorData.status}] ` : '';
 
-    const consoleMsg = `❌ ${where} — ${message}${user ? ' — ' + user : ''}${stack}`;
-    const sanitizedConsoleMsg = sanitizeErrorText(consoleMsg);
-    logger.error(sanitizedConsoleMsg, { category: 'error' });
+    // Extraer ubicación precisa del stack (archivo y línea de código)
+    let ubicacion = '';
+    if (errorData.stack) {
+      const lines = errorData.stack.split('\n');
+      const appLine = lines.find(l => (l.includes('src/') || l.includes('src\\')) && !l.includes('logger.js'));
+      if (appLine) {
+        ubicacion = appLine.trim().replace(/^at\s+/, '');
+      } else if (lines.length > 1) {
+        ubicacion = lines[1].trim().replace(/^at\s+/, '');
+      }
+    }
+
+    const consoleMsg = 
+      `${C.bold}${C.redBright}FALLO EN SERVIDOR${C.reset} ${C.yellowBright}${status}${C.bold}${where}${C.reset}\n` +
+      `   ${C.red}│${C.reset} ${C.bold}• Detalle:${C.reset}   ${C.whiteBright}${message}${C.reset}\n` +
+      (ubicacion ? `   ${C.red}│${C.reset} ${C.bold}• Ubicación:${C.reset} ${C.cyanBright}${ubicacion}${C.reset}\n` : '') +
+      (user ? `   ${C.red}│${C.reset} ${C.bold}• Usuario:${C.reset}   ${C.magentaBright}${user}${C.reset}\n` : '') +
+      (errorData.ip ? `   ${C.red}│${C.reset} ${C.bold}• IP:${C.reset}        ${C.gray}${errorData.ip}${C.reset}` : '');
+
+    logger.error(sanitizeErrorText(consoleMsg), { category: 'error' });
 
     structuredData = {
       ...errorData,
@@ -203,11 +255,12 @@ export const logError = (errorData, meta = {}) => {
     };
   } else {
     message = String(errorData);
-    const sanitizedMsg = sanitizeErrorText(message);
-    logger.error(sanitizedMsg, { category: 'error' });
+    const where = meta.where || 'Módulo interno / Controlador';
+    const consoleMsg = `${C.bold}${C.redBright}FALLO:${C.reset} ${C.yellowBright}${where}${C.reset} — ${message}`;
+    logger.error(sanitizeErrorText(consoleMsg), { category: 'error' });
     structuredData = {
-      message: sanitizedMsg,
-      where: meta.where || 'Módulo interno / Controlador',
+      message: sanitizeErrorText(message),
+      where: sanitizeErrorText(where),
       user: meta.user || undefined,
       ip: meta.ip || undefined,
       stack: meta.stack ? sanitizeErrorText(meta.stack) : undefined
