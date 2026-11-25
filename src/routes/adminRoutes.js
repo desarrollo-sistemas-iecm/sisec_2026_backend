@@ -13,6 +13,11 @@ import {
   subirNuevoFormato
 } from '../controllers/adminFormatosController.js'
 import { getPermisosCatalogos, getPermisosUsuario, savePermisosUsuario, getMisPermisos } from '../controllers/permisosController.js'
+import {
+  getTelegramConfigEndpoint,
+  putTelegramConfigEndpoint,
+  postTelegramTestEndpoint
+} from '../controllers/telegramAdminController.js'
 
 const upload = multer({ dest: 'uploads/temp/' })
 
@@ -113,5 +118,10 @@ router.get('/permisos/catalogos', auth, isSuperAdmin, getPermisosCatalogos)
 router.get('/permisos/usuario/:id_usuario', auth, onlySuperAdmin, getPermisosUsuario)
 router.post('/permisos/usuario/:id_usuario', auth, onlySuperAdmin, savePermisosUsuario)
 router.get('/permisos/mis-permisos', auth, getMisPermisos)
+
+// Rutas de Configuración de Notificaciones Telegram (Solo Super Admin)
+router.get('/telegram-config', auth, onlySuperAdmin, getTelegramConfigEndpoint)
+router.put('/telegram-config', auth, onlySuperAdmin, putTelegramConfigEndpoint)
+router.post('/telegram-test', auth, onlySuperAdmin, postTelegramTestEndpoint)
 
 export default router
