@@ -6,7 +6,7 @@ import morgan from 'morgan'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { env } from './config/env.js'
-import { logger } from './config/logger.js'
+import { logger, C } from './config/logger.js'
 import routes from './routes/index.js'
 import { errorHandler } from './middlewares/errorHandler.js'
 
@@ -44,7 +44,40 @@ app.use(cors({
   credentials: true
 }))
 app.use(express.json())
-app.use(morgan('dev'))
+
+// Configuración de Morgan: Omitir peticiones GET y HEAD (solo registrar mutaciones POST, PUT, DELETE, PATCH)
+app.use(
+  morgan((tokens, req, res) => {
+    const status = res.statusCode
+    const statusColor = status >= 500 
+      ? `${C.bgRed}${C.bold}${C.white} ${status} ${C.reset}` 
+      : status >= 400 
+        ? `${C.yellowBright}${C.bold}${status}${C.reset}` 
+        : status >= 300 
+          ? `${C.cyanBright}${status}${C.reset}` 
+          : `${C.greenBright}${C.bold}${status}${C.reset}`
+
+    let methodBadge = `${C.bgBlue}${C.bold}${C.white} ${req.method} ${C.reset}`
+    if (req.method === 'POST') methodBadge = `${C.bgGreen}${C.bold}${C.white} POST ${C.reset}`
+    if (req.method === 'DELETE') methodBadge = `${C.bgRed}${C.bold}${C.white} DELETE ${C.reset}`
+    if (req.method === 'PATCH') methodBadge = `${C.bgYellow}${C.bold}${C.black} PATCH ${C.reset}`
+    if (req.method === 'PUT') methodBadge = `${C.bgBlue}${C.bold}${C.white} PUT ${C.reset}`
+
+    const url = `${C.white}${req.originalUrl || req.url}${C.reset}`
+    const responseTime = `${C.gray}(${tokens['response-time'](req, res)} ms)${C.reset}`
+    const user = req.user ? `${C.magentaBright}[👤 ${req.user.usuario || req.user.nombre || `id=${req.user.id_usuario}`}]${C.reset}` : ''
+
+    const time = new Date().toTimeString().split(' ')[0]
+    const ts = `${C.gray}${time}${C.reset}`
+
+    return `${ts} ${C.gray}[HTTP]${C.reset} ${methodBadge} ${url} ${statusColor} ${responseTime} ${user}`
+  }, {
+    skip: (req) => {
+      // Omitir completamente peticiones GET y HEAD
+      return req.method === 'GET' || req.method === 'HEAD'
+    }
+  })
+)
 
 // Rutas de la API (soporte estándar directo y bajo subruta)
 const apiPrefixes = ['/api', '/sisec_2026/api', '/sisec_2026/api']

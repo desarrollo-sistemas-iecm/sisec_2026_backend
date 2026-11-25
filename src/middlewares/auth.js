@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
 import { getNewPool, getPool, sql } from '../config/db.js'
-import { logger } from '../config/logger.js'
+import { logger, logError } from '../config/logger.js'
 
 export const auth = async (req, res, next) => {
   const header = req.headers.authorization
@@ -65,7 +65,13 @@ export const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Token inválido o expirado.', code: 'TOKEN_EXPIRED' })
     }
     
-    logger.error(`[AUTH_ERROR] Error en authMiddleware: ${error.message}`)
+    logError({
+      message: error.message,
+      where: `[AUTH] ${req.method} ${req.originalUrl}`,
+      ip: req.ip || req.socket?.remoteAddress,
+      status: 500,
+      stack: error.stack
+    })
     return res.status(500).json({
       success: false,
       message: 'No se pudo verificar el estado de la sesión, por favor intente de nuevo.'
