@@ -9,12 +9,9 @@ const AMBIENTE_EMOJI = {
   production: '🚨'
 };
 
-// Contadores en memoria para resumen de actividad
+// Contadores en memoria para actividades complementarias
 const contadores = {
-  actividades_realizadas: 0,
-  talleres: 0,
-  intervenciones: 0,
-  encuestas: 0,
+  reportes_generados: 0,
   consultas: 0
 };
 
@@ -26,95 +23,78 @@ function escapeHtml(texto) {
 }
 
 export function registrarEvento(tipo, detail = null) {
-  // Las sesiones ya no se acumulan ni se resumen
-  if (tipo === 'sesiones') {
-    return;
-  }
-
-  if (contadores[tipo] !== undefined) {
-    contadores[tipo]++;
-  }
-  // Si se completa un taller o intervención, se suma al general de actividades realizadas
-  if (tipo === 'intervenciones' || tipo === 'talleres') {
-    contadores.actividades_realizadas++;
+  if (tipo === 'sesiones') return;
+  if (tipo === 'consultas' || tipo === 'reportes') {
+    contadores.consultas++;
   }
 }
 
 /**
- * 📊 Resumen de Actividad
- * Se dispara exclusivamente de Lunes a Viernes a las 09:00 hrs y a las 18:00 hrs (2 veces al día).
+ * 📊 Resumen de Métricas Institucionales (SICECyCC 2027)
+ * Se dispara automáticamente de Lunes a Viernes a las 09:00 hrs y a las 18:00 hrs (o manualmente).
  */
 export async function enviarResumenActividad(turno = null) {
-  const ambiente = env.nodeEnv || 'desconocido';
-  const emoji = AMBIENTE_EMOJI[ambiente] || '⚙️';
-  
+  const ambiente = env.nodeEnv || 'development';
+  const emoji = AMBIENTE_EMOJI[ambiente] || '🧪';
+
   const now = new Date();
   const fechaStr = now.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' });
   const horaStr = now.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour12: false });
 
-  const tituloTurno = turno ? `\n🏷️ <b>Corte:</b> ${escapeHtml(turno)}` : '';
-
-  const mensaje = `${emoji} <b>[${ambiente.toUpperCase()}]</b>\n` +
-    `📊 <b>Resumen de Actividad - SICEC CC</b>\n` +
-    `🕐 <b>Fecha y Hora:</b> ${fechaStr} ${horaStr}${tituloTurno}\n\n` +
-    `✅ <b>Actividades realizadas:</b> ${contadores.actividades_realizadas}\n` +
-    `📚 <b>Talleres:</b> ${contadores.talleres}\n` +
-    `👥 <b>Intervenciones:</b> ${contadores.intervenciones}\n` +
-    `📝 <b>Encuestas:</b> ${contadores.encuestas}\n\n` +
-    `🔵 <b>Consultas / Reportes:</b> ${contadores.consultas}`;
+  // Obtener métricas reales en vivo de la base de datos
+  let totalAcciones = 0;
+  let sinCapturar = 0;
+  let totalCapturadas = 0;
+  let totalEncuestas = 0;
 
   try {
-    await enviarMensajeTelegram(mensaje);
-    
-    // Reiniciar contadores de actividad únicamente tras un envío exitoso
-    contadores.actividades_realizadas = 0;
-    contadores.talleres = 0;
-    contadores.intervenciones = 0;
-    contadores.encuestas = 0;
-    contadores.consultas = 0;
+    const { getAdminDashboardMetrics } = await import('../models/actividadModel.js');
+    const metrics = await getAdminDashboardMetrics();
+    if (metrics) {
+      totalAcciones = Number(metrics.total_acciones || 0);
+      sinCapturar = Number(metrics.sin_capturar || 0);
+      totalCapturadas = Number(metrics.total_capturadas || (Number(metrics.capturadas || 0) + Number(metrics.finalizadas || 0)) || 0);
+      totalEncuestas = Number(metrics.total_encuestas || 0);
+    }
+  } catch (mErr) {
+    // fallback
+  }
+
+  const corteTexto = turno || '🌅 Turno Matutino (09:00 hrs)';
+  const totalReportes = contadores.consultas || 0;
+
+  // Formato exacto e intuitivo solicitado
+  const mensaje = 
+    `${emoji} [${ambiente.toUpperCase()}]\n` +
+    ` SICECyCC 2027\n` +
+    `🕐 Fecha y Hora: ${fechaStr} ${horaStr}\n` +
+    `🏷️ Corte: ${corteTexto}\n\n` +
+    `✅ Acciones Totales: ${totalAcciones}\n` +
+    `📚 Sin capturar: ${sinCapturar}\n` +
+    `👥 Capturadas o finalizadas: ${totalCapturadas}\n` +
+    `📝 Encuestas respondidas: ${totalEncuestas}\n\n` +
+    `🔵 Reportes: ${totalReportes}`;
+
+  try {
+    await enviarMensajeTelegram(mensaje, 'resumen_diario');
   } catch (err) {
     import('../config/logger.js').then(({ logger }) => {
-      logger.error(`[TELEGRAM_ERROR] Error enviando resumen de actividad: ${err.message}`);
+      logger.error(`[TELEGRAM_ERROR] Error enviando resumen de métricas: ${err.message}`);
     }).catch(() => {});
   }
 }
 
 /**
- * 📈 Acumulado Histórico Global
- * Se dispara exclusivamente los VIERNES a las 09:00 hrs.
+ * 📈 Acumulado Histórico Global (Viernes a las 09:00 hrs)
  */
 export async function enviarResumenHistorico() {
-  try {
-    const { getAdminDashboardMetrics } = await import('../models/actividadModel.js');
-    const metrics = await getAdminDashboardMetrics();
-
-    const ambiente = env.nodeEnv || 'desconocido';
-    const emoji = AMBIENTE_EMOJI[ambiente] || '⚙️';
-    const now = new Date();
-    const fechaStr = now.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' });
-    const horaStr = now.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour12: false });
-
-    const mensaje = `${emoji} <b>[${ambiente.toUpperCase()}]</b>\n` +
-      `📈 <b>Acumulado Histórico Global - SICEC CC</b>\n` +
-      `🗓️ <b>Corte Semanal (Viernes):</b> ${fechaStr} ${horaStr}\n\n` +
-      `✅ <b>Actividades realizadas:</b> ${metrics.actividades_realizadas}\n` +
-      `📚 <b>Talleres:</b> ${metrics.total_talleres}\n` +
-      `👥 <b>Intervenciones:</b> ${metrics.total_intervenciones}\n` +
-      `📝 <b>Encuestas:</b> ${metrics.total_encuestas}`;
-
-    await enviarMensajeTelegram(mensaje);
-  } catch (err) {
-    import('../config/logger.js').then(({ logger }) => {
-      logger.error(`[TELEGRAM_ERROR] Error enviando resumen histórico: ${err.message}`);
-    }).catch(() => {});
-  }
+  await enviarResumenActividad('🗓️ Acumulado Semanal (Viernes)');
 }
 
 /**
  * ⏰ Programador Automático de Horarios Fijos:
- * - Resumen de Actividad: Lunes a Viernes a las 09:00 y a las 18:00 hrs.
- * - Acumulado Histórico: Solo los Viernes a las 09:00 hrs.
- * - Resumen de Sesiones: Removido completamente.
+ * - Resumen Matutino: Lunes a Viernes a las 09:00 hrs.
+ * - Resumen Vespertino: Lunes a Viernes a las 18:00 hrs.
  */
 const marcasEjecucion = {
   actividad: '',
@@ -123,14 +103,13 @@ const marcasEjecucion = {
 
 function verificarProgramadores() {
   const now = new Date();
-  const day = now.getDay(); // 0: Domingo, 1: Lunes, ..., 5: Viernes, 6: Sábado
+  const day = now.getDay(); // 0: Dom, 1: Lun, ..., 5: Vie, 6: Sab
   const hours = now.getHours();
   const minutes = now.getMinutes();
 
   const fechaStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const claveHora = `${fechaStr}-${String(hours).padStart(2, '0')}`;
 
-  // 1. Resumen de Actividad: Lunes a Viernes a las 09:00 y a las 18:00
   const esLunesAViernes = day >= 1 && day <= 5;
   const esHoraActividad = (hours === 9 || hours === 18) && minutes === 0;
 
@@ -143,46 +122,74 @@ function verificarProgramadores() {
       }).catch(() => {});
     });
   }
-
-  // 2. Acumulado Histórico: Solo los Viernes a las 09:00
-  const esViernes = day === 5;
-  const esHoraHistorico = hours === 9 && minutes === 0;
-
-  if (esViernes && esHoraHistorico && marcasEjecucion.historico !== claveHora) {
-    marcasEjecucion.historico = claveHora;
-    enviarResumenHistorico().catch(err => {
-      import('../config/logger.js').then(({ logger }) => {
-        logger.error(`[TELEGRAM_SCHEDULER] Error al enviar acumulado histórico: ${err.message}`);
-      }).catch(() => {});
-    });
-  }
 }
 
-// Intervalo de comprobación cada 20 segundos
 setInterval(verificarProgramadores, 20 * 1000);
 
+/**
+ * 📩 Notificación Instantánea: Mensaje de Admin al Superadmin
+ * Se despacha inmediatamente cuando un administrador envía un mensaje interno destinado al superadmin.
+ */
+export async function enviarMensajeAdminASuperadminTelegram({
+  usuarioOrigen,
+  nombreOrigen,
+  rolOrigen,
+  distritoOrigen,
+  titulo,
+  mensaje,
+  comentarioAdicional,
+  folioAccion
+}) {
+  const ambiente = env.nodeEnv || 'development';
+  const emoji = AMBIENTE_EMOJI[ambiente] || '🧪';
+  const now = new Date();
+  const fechaStr = now.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const horaStr = now.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour12: false });
+
+  const origenTxt = distritoOrigen && Number(distritoOrigen) > 0 ? `Distrito ${distritoOrigen}` : 'Oficina Central';
+
+  let cuerpo = 
+    `${emoji} [${ambiente.toUpperCase()}]\n` +
+    `📩 <b>NUEVO MENSAJE AL SUPERADMIN</b>\n` +
+    `🕐 <b>Fecha y Hora:</b> ${fechaStr} ${horaStr}\n\n` +
+    `👤 <b>De:</b> ${escapeHtml(nombreOrigen || usuarioOrigen || 'Administrador')} (${escapeHtml(rolOrigen || 'Admin')} - ${origenTxt})\n` +
+    `🎯 <b>Para:</b> Super Administrador\n` +
+    `🏷️ <b>Asunto:</b> ${escapeHtml(titulo)}\n` +
+    `💬 <b>Mensaje:</b> ${escapeHtml(mensaje)}\n`;
+
+  if (comentarioAdicional && String(comentarioAdicional).trim()) {
+    cuerpo += `📝 <b>Comentario adicional:</b> ${escapeHtml(String(comentarioAdicional).trim())}\n`;
+  }
+  if (folioAccion) {
+    cuerpo += `🆔 <b>Acción Educativa:</b> <code>${escapeHtml(folioAccion)}</code>\n`;
+  }
+
+  await enviarMensajeTelegram(cuerpo, 'alertas_admin');
+}
+
+/**
+ * ⚠️ Alerta de Advertencia
+ */
 export async function enviarAlertaWarn(message) {
-  const ambiente = env.nodeEnv || 'desconocido';
-  const emoji = AMBIENTE_EMOJI[ambiente] || '⚙️';
+  const ambiente = env.nodeEnv || 'development';
+  const emoji = AMBIENTE_EMOJI[ambiente] || '🧪';
   const now = new Date();
   const fechaStr = now.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' });
   const horaStr = now.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour12: false });
 
   const mensaje = `${emoji} <b>[${ambiente.toUpperCase()}]</b>\n` +
-    `⚠️ <b>Aviso / Advertencia - SICEC CC</b>\n` +
+    `⚠️ <b>Aviso / Advertencia - SICEC 2027</b>\n` +
     `🕐 <b>Fecha y Hora:</b> ${fechaStr} ${horaStr}\n\n` +
     `<pre>${escapeHtml(sanitizeErrorText(message))}</pre>`;
 
-  await enviarMensajeTelegram(mensaje);
+  await enviarMensajeTelegram(mensaje, 'alertas_errores');
 }
 
 /**
  * 🚨 Alerta de Errores Críticos
- * Se despacha INMEDIATAMENTE al ocurrir cualquier fallo (sin deduplicación).
- * Especifica con claridad DÓNDE se originó y CUÁL ES EL ERROR EXPLÍCITAMENTE.
  */
 export async function enviarAlertaError(errorInfo) {
-  const ambiente = env.nodeEnv || 'desconocido';
+  const ambiente = env.nodeEnv || 'development';
   const emoji = AMBIENTE_EMOJI[ambiente] || '🚨';
   const now = new Date();
   const fechaStr = now.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -203,8 +210,6 @@ export async function enviarAlertaError(errorInfo) {
   } else {
     const raw = String(errorInfo || 'Error no especificado');
     mensajeError = raw;
-    
-    // Si viene en formato con separador "—"
     if (raw.includes('—')) {
       const parts = raw.split('—').map(p => p.trim());
       if (parts.length >= 2) {
@@ -217,25 +222,23 @@ export async function enviarAlertaError(errorInfo) {
     }
   }
 
-  // Sanitizar todos los datos para no comprometer credenciales ni rutas locales
   const sanitizedMsg = sanitizeErrorText(mensajeError);
   const sanitizedDonde = sanitizeErrorText(donde);
   const sanitizedUser = usuario ? sanitizeErrorText(usuario) : null;
   const sanitizedStack = stack ? sanitizeErrorText(stack) : null;
 
-  let cuerpoMensaje = `${emoji} <b>[${ambiente.toUpperCase()}] 🚨 ERROR CRÍTICO EN SERVIDOR</b>\n` +
+  let cuerpoMensaje = `${emoji} <b>[${ambiente.toUpperCase()}] 🚨 ERROR EN SERVIDOR</b>\n` +
     `🕐 <b>Fecha y Hora:</b> ${fechaStr} ${horaStr}\n\n` +
-    `📍 <b>¿Dónde se disparó?</b>\n` +
-    `• <b>Origen / Ruta:</b> <code>${escapeHtml(sanitizedDonde)}</code>\n`;
+    `📍 <b>Origen:</b> <code>${escapeHtml(sanitizedDonde)}</code>\n`;
 
   if (sanitizedUser) {
-    cuerpoMensaje += `• <b>Usuario:</b> ${escapeHtml(sanitizedUser)}\n`;
+    cuerpoMensaje += `👤 <b>Usuario:</b> ${escapeHtml(sanitizedUser)}\n`;
   }
   if (ip) {
-    cuerpoMensaje += `• <b>IP del Cliente:</b> <code>${escapeHtml(ip)}</code>\n`;
+    cuerpoMensaje += `🌐 <b>IP:</b> <code>${escapeHtml(ip)}</code>\n`;
   }
 
-  cuerpoMensaje += `\n💥 <b>Error explícito:</b>\n` +
+  cuerpoMensaje += `\n💥 <b>Detalle del error:</b>\n` +
     `<pre>${escapeHtml(sanitizedMsg)}</pre>`;
 
   if (sanitizedStack) {
@@ -252,15 +255,38 @@ export async function enviarAlertaError(errorInfo) {
     }
   }
 
-  // Envío inmediato a la API de Telegram
-  await enviarMensajeTelegram(cuerpoMensaje);
+  await enviarMensajeTelegram(cuerpoMensaje, 'alertas_errores');
 }
 
-export async function enviarMensajeTelegram(text) {
+/**
+ * 📤 Envío centralizado a la API de Telegram respetando la configuración del Super Admin
+ */
+export async function enviarMensajeTelegram(text, categoria = null) {
   try {
     const token = env.telegram?.botToken;
     const chatId = env.telegram?.chatId;
     if (!token || !chatId) return;
+
+    // Verificar si las notificaciones están activas según la configuración del Super Admin
+    try {
+      const { getTelegramConfig } = await import('../models/telegramConfigModel.js');
+      const cfg = await getTelegramConfig();
+
+      // Si el switch maestro está apagado, no enviar nada
+      if (!cfg.activo) {
+        import('../config/logger.js').then(({ logger }) => {
+          logger.info('[TELEGRAM] Envío omitido: Notificaciones desactivadas por el Super Administrador.');
+        }).catch(() => {});
+        return;
+      }
+
+      // Validar por categoría específica
+      if (categoria === 'resumen_diario' && !cfg.resumen_diario) return;
+      if (categoria === 'alertas_admin' && !cfg.alertas_admin) return;
+      if (categoria === 'alertas_errores' && !cfg.alertas_errores) return;
+    } catch (cfgErr) {
+      // Si falla la consulta de configuración, continuar normalmente
+    }
 
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,
