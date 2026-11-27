@@ -175,8 +175,8 @@ export const listAccionesByDistrito = async (id_distrito) => {
     SELECT 
       ti.idcurso AS id_acciones_educativas,
       CASE 
-        WHEN ti.id_distrito = 0 THEN ('AE-CEN-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
-        ELSE ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        WHEN ti.id_distrito = 0 THEN ('AE-CEN-2027-F' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        ELSE ('AE-DD' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-2027-F' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
       END AS folio_accion_educativa,
       ti.convenio AS con_convenio,
       ti.idcatcurso AS id_accion,
@@ -415,8 +415,8 @@ export const listAllAccionesAdmin = async (filtros = {}) => {
     SELECT 
       ti.idcurso AS id_acciones_educativas,
       CASE 
-        WHEN ti.id_distrito = 0 THEN ('AE-CEN-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
-        ELSE ('AE-' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        WHEN ti.id_distrito = 0 THEN ('AE-CEN-2027-F' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
+        ELSE ('AE-DD' + RIGHT('00' + CAST(ti.id_distrito AS VARCHAR), 2) + '-2027-F' + RIGHT('0000' + CAST(ti.idcurso AS VARCHAR), 4))
       END AS folio_accion_educativa,
       ti.convenio AS con_convenio,
       ti.idcatcurso AS id_accion,

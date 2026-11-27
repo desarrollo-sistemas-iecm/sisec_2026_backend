@@ -30,7 +30,9 @@ process.on('unhandledRejection', (reason) => {
 const startServer = async () => {
   let server = null
   try {
-    await connectDb()
+    const { poolMain, poolHist } = await connectDb()
+    const dbOk = !!(poolMain && poolMain.connected)
+    const dbHistOk = !!(poolHist && poolHist.connected)
 
     // Importar e inicializar el servicio de Telegram al arranque para arrancar programadores periódicos
     await import('./services/telegram.service.js')
@@ -40,12 +42,14 @@ const startServer = async () => {
     logger.info('╔══════════════════════════════════════╗')
     logger.info('║     SISEC CC 2026 — Backend API      ║')
     logger.info('╚══════════════════════════════════════╝')
-    logger.info(`🌐 Ambiente     : ${env.nodeEnv}`)
-    logger.info(`🚀 Servidor     : ${serverUrl}`)
-    logger.info(`📦 Base de datos: ${env.db.database} @ ${env.db.server}`)
-    logger.info('✅ Conexión BD  : Exitosa')
-    logger.info('📋 Versión API  : v1')
-    logger.info(`⏰ Inicio       : ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`)
+    logger.info(`🌐 Ambiente         : ${env.nodeEnv}`)
+    logger.info(`🚀 Servidor         : ${serverUrl}`)
+    logger.info(`📦 Base de datos    : ${env.db.database} @ ${env.db.server}`)
+    logger.info(`✅ Conexión BD      : ${dbOk ? 'Exitosa' : 'Fallo'}`)
+    logger.info(`🏛️  BD Histórica     : ${env.dbHistorical.database} @ ${env.dbHistorical.server}`)
+    logger.info(`✅ Conexión Hist.   : ${dbHistOk ? 'Exitosa' : 'Fallo'}`)
+    logger.info('📋 Versión API      : v1')
+    logger.info(`⏰ Inicio           : ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`)
     logger.info('══════════════════════════════════════════')
   } catch (error) {
     logger.error('❌ ERROR DE CONEXIÓN A BASE DE DATOS')

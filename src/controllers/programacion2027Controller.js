@@ -7,6 +7,7 @@ import {
   reprogramarAccion,
   cancelarAccion
 } from '../models/accionesEducativasModel.js'
+import { isFechaHabilitada } from '../models/configFechasModel.js'
 import { getIo } from '../socket.js'
 import { logger } from '../config/logger.js'
 
@@ -61,6 +62,18 @@ export const postProgramacion2027Endpoint = async (req, res, next) => {
     const id_usuario = req.user?.idusuario || req.user?.id_usuario || 1
     const userPermiso = Number(req.user?.permiso || req.user?.idpermiso || 1)
     const userSede = req.user?.idsede !== undefined ? Number(req.user.idsede) : (req.user?.id_distrito !== undefined ? Number(req.user.id_distrito) : 1)
+
+    // Restricción de meses pasados para operadores (permiso = 1)
+    if (userPermiso === 1) {
+      const habilitada = await isFechaHabilitada('programacion', fecha_programada, userSede)
+      if (!habilitada) {
+        return res.status(403).json({
+          success: false,
+          message: `La fecha seleccionada (${fecha_programada}) corresponde a un mes pasado que se encuentra cerrado. Para registrar actividades de meses anteriores, solicita una habilitación al Administrador.`
+        })
+      }
+    }
+
     // Si el usuario es administrador (permiso >= 2), superadmin o su sede es 0, la acción se liga a Central (0)
     const id_distrito = (userPermiso >= 2 || userSede === 0 || req.user?.usuario === 'admin') ? 0 : userSede
 
@@ -127,6 +140,18 @@ export const reprogramarAccionEndpoint = async (req, res, next) => {
 
     if (!fecha_programada || !hora_programada) {
       return res.status(400).json({ success: false, message: 'Fecha y hora son obligatorias para reprogramar.' })
+    }
+
+    const userPermiso = Number(req.user?.permiso || req.user?.idpermiso || 1)
+    const userSede = req.user?.idsede !== undefined ? Number(req.user.idsede) : (req.user?.id_distrito !== undefined ? Number(req.user.id_distrito) : 1)
+    if (userPermiso === 1) {
+      const habilitada = await isFechaHabilitada('programacion', fecha_programada, userSede)
+      if (!habilitada) {
+        return res.status(403).json({
+          success: false,
+          message: `La fecha seleccionada (${fecha_programada}) corresponde a un mes pasado que se encuentra cerrado. Para reprogramar actividades a meses anteriores, solicita una habilitación al Administrador.`
+        })
+      }
     }
 
     await reprogramarAccion(id, fecha_programada, hora_programada)

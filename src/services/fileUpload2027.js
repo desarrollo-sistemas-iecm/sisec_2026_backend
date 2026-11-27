@@ -22,7 +22,7 @@ export const resolveFolioAccion = (idDistrito, idAccion, folioFromBody) => {
   }
   const formattedDistrito = String(idDistrito || 1).padStart(2, '0')
   const formattedId = String(idAccion || 1).padStart(4, '0')
-  return `AE-DD${formattedDistrito}-2027-${formattedId}`
+  return `AE-DD${formattedDistrito}-2027-F${formattedId}`
 }
 
 /**

@@ -387,7 +387,8 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
           ISNULL(SUM(CASE WHEN ae.id_estado = 3 THEN 1 ELSE 0 END), 0) AS finalizadas,
           ISNULL(SUM(CASE WHEN ae.id_estado IN (2, 3) THEN 1 ELSE 0 END), 0) AS total_capturadas,
           ISNULL(SUM(CASE WHEN ae.id_estado = 4 THEN 1 ELSE 0 END), 0) AS canceladas,
-          (SELECT COUNT(*) FROM encuestas enc INNER JOIN acciones_educativas ae_enc ON enc.id_acciones_educativas = ae_enc.id_acciones_educativas WHERE 1=1 ${dateFilterEncGlobal}) AS total_encuestas
+          (SELECT COUNT(*) FROM encuestas enc INNER JOIN acciones_educativas ae_enc ON enc.id_acciones_educativas = ae_enc.id_acciones_educativas WHERE 1=1 ${dateFilterEncGlobal}) AS total_encuestas,
+          (SELECT COUNT(DISTINCT enc.id_acciones_educativas) FROM encuestas enc INNER JOIN acciones_educativas ae_enc ON enc.id_acciones_educativas = ae_enc.id_acciones_educativas WHERE 1=1 ${dateFilterEncGlobal}) AS acciones_con_encuestas
         FROM acciones_educativas ae
         ${dateFilterGlobal}
       `)
@@ -405,7 +406,11 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
           (SELECT COUNT(*) FROM encuestas enc 
            INNER JOIN acciones_educativas ae2 ON enc.id_acciones_educativas = ae2.id_acciones_educativas 
            INNER JOIN usuarios u2 ON ae2.id_usuario = u2.id_usuario 
-           WHERE u2.id_distrito = u.id_distrito ${dateFilterEncDist}) AS total_encuestas
+           WHERE u2.id_distrito = u.id_distrito ${dateFilterEncDist}) AS total_encuestas,
+          (SELECT COUNT(DISTINCT enc.id_acciones_educativas) FROM encuestas enc 
+           INNER JOIN acciones_educativas ae2 ON enc.id_acciones_educativas = ae2.id_acciones_educativas 
+           INNER JOIN usuarios u2 ON ae2.id_usuario = u2.id_usuario 
+           WHERE u2.id_distrito = u.id_distrito ${dateFilterEncDist}) AS acciones_con_encuestas
         FROM acciones_educativas ae
         INNER JOIN usuarios u ON ae.id_usuario = u.id_usuario
         ${dateFilterDistritos}
@@ -424,8 +429,10 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
           capturadas: 0,
           finalizadas: 0,
           total_actividades: 0,
+          con_folio: 0,
           canceladas: 0,
           total_encuestas: 0,
+          acciones_con_encuestas: 0,
           porcentaje_avance: 0
         }
       }
@@ -444,8 +451,10 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
           capturadas: Number(d.capturadas || 0),
           finalizadas: Number(d.finalizadas || 0),
           total_actividades: act,
+          con_folio: act,
           canceladas: Number(d.canceladas || 0),
           total_encuestas: Number(d.total_encuestas || 0),
+          acciones_con_encuestas: Number(d.acciones_con_encuestas || 0),
           porcentaje_avance: pct
         }
 
@@ -472,6 +481,8 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
         finalizadas,
         total_capturadas,
         total_encuestas,
+        acciones_con_encuestas: Number(gm.acciones_con_encuestas || 0),
+        con_folio: total_capturadas,
         actividades_realizadas: total_capturadas,
         actividades_pendientes: sin_capturar,
         grafica_distritos: distritosArray,
@@ -479,6 +490,7 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
       }
     }
   } catch (err) {
+    logger.error(`[METRICAS ADMIN] Error consultando métricas 2027: ${err.message}`)
     // Si falla o no existe tabla nueva, continúa con fallback legacy
   }
 
@@ -500,7 +512,8 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
         u.idsede,
         COUNT(*) as total_acciones,
         SUM(CASE WHEN ti.status = 3 THEN 1 ELSE 0 END) as total_actividades,
-        SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END) as sin_capturar
+        SUM(CASE WHEN ti.status = 1 THEN 1 ELSE 0 END) as sin_capturar,
+        (SELECT COUNT(*) FROM sisecycc2024.dbo.sisec_encuestas e INNER JOIN sisec_usuarios ue ON e.idusuario = ue.idusuario WHERE ue.idsede = u.idsede) as total_encuestas
       FROM sisec_usuarios u
       LEFT JOIN sisecycc2024.dbo.sisec_talleres_intervenciones ti 
         ON u.idusuario = ti.idusuario
@@ -539,7 +552,7 @@ export const getAdminDashboardMetrics = async (filtros = {}) => {
           finalizadas: act,
           total_actividades: act,
           canceladas: 0,
-          total_encuestas: 0,
+          total_encuestas: Number(d.total_encuestas || 0),
           porcentaje_avance: tot > 0 ? Math.round((act / tot) * 100) : 0
         }
       }

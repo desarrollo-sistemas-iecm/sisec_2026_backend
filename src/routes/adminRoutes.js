@@ -1,7 +1,25 @@
 import { Router } from 'express'
 import { auth } from '../middlewares/auth.js'
 import multer from 'multer'
-import { listConfigFechas, saveConfigFechas, deleteConfigFecha, requestFechaExcepcion, getManualConfig, saveManualConfig, getAlertaLoginConfig, saveAlertaLoginConfig, getUltimaActualizacionConfig, saveUltimaActualizacionConfig, listCursosAdmin, createCursoAdmin, updateCursoColor, updateVertienteColor } from '../controllers/adminController.js'
+import { 
+  listConfigFechas, 
+  saveConfigFechas, 
+  updateConfigFecha,
+  deleteConfigFecha, 
+  requestFechaExcepcion, 
+  getManualConfig, 
+  saveManualConfig, 
+  getAlertaLoginConfig, 
+  saveAlertaLoginConfig, 
+  getUltimaActualizacionConfig, 
+  saveUltimaActualizacionConfig, 
+  getSistemaCierreConfig,
+  saveSistemaCierreConfig,
+  listCursosAdmin, 
+  createCursoAdmin, 
+  updateCursoColor, 
+  updateVertienteColor 
+} from '../controllers/adminController.js'
 import { getUsuarios, postUsuario, putUsuario, delUsuario, desconectarUsuarioEndpoint } from '../controllers/usuariosController.js'
 import { getArchivosTree, deleteArchivo, replaceArchivo, downloadFolderZip } from '../controllers/archivosController.js'
 import {
@@ -18,6 +36,15 @@ import {
   putTelegramConfigEndpoint,
   postTelegramTestEndpoint
 } from '../controllers/telegramAdminController.js'
+import {
+  getMetasEndpoint,
+  postMetaEndpoint,
+  putMetaEndpoint,
+  getRecordatoriosEndpoint,
+  postRecordatorioEndpoint,
+  postDispararRecordatorioEndpoint,
+  getMetasDashboardStatsEndpoint
+} from '../controllers/metasController.js'
 
 const upload = multer({ dest: 'uploads/temp/' })
 
@@ -42,6 +69,7 @@ const onlySuperAdmin = (req, res, next) => {
 // Rutas de Restricciones
 router.get('/restricciones', auth, listConfigFechas)
 router.post('/restricciones', auth, isSuperAdmin, saveConfigFechas)
+router.put('/restricciones/:id', auth, isSuperAdmin, updateConfigFecha)
 router.delete('/restricciones/:id', auth, isSuperAdmin, deleteConfigFecha)
 router.post('/restricciones/solicitar', auth, requestFechaExcepcion)
 
@@ -56,6 +84,10 @@ router.post('/alerta-login-config', auth, onlySuperAdmin, saveAlertaLoginConfig)
 // Configuración de la Última Actualización del Código
 router.get('/ultima-actualizacion-config', getUltimaActualizacionConfig)
 router.post('/ultima-actualizacion-config', auth, onlySuperAdmin, saveUltimaActualizacionConfig)
+
+// Configuración de Cierre y Apertura Programada del Sistema (Inicio de Sesión) (Solo Super Administrador)
+router.get('/config-fechas/sistema-cierre', auth, onlySuperAdmin, getSistemaCierreConfig)
+router.post('/config-fechas/sistema-cierre', auth, onlySuperAdmin, saveSistemaCierreConfig)
 
 
 
@@ -123,5 +155,15 @@ router.get('/permisos/mis-permisos', auth, getMisPermisos)
 router.get('/telegram-config', auth, onlySuperAdmin, getTelegramConfigEndpoint)
 router.put('/telegram-config', auth, onlySuperAdmin, putTelegramConfigEndpoint)
 router.post('/telegram-test', auth, onlySuperAdmin, postTelegramTestEndpoint)
+
+// Rutas de Metas Anuales Institucionales y Recordatorios (Admin y Super Admin)
+router.get('/metas', auth, isSuperAdmin, getMetasEndpoint)
+router.post('/metas', auth, isSuperAdmin, postMetaEndpoint)
+router.put('/metas/:id', auth, isSuperAdmin, putMetaEndpoint)
+router.get('/metas/dashboard', auth, getMetasDashboardStatsEndpoint)
+
+router.get('/recordatorios', auth, isSuperAdmin, getRecordatoriosEndpoint)
+router.post('/recordatorios', auth, isSuperAdmin, postRecordatorioEndpoint)
+router.post('/recordatorios/:id/disparar', auth, isSuperAdmin, postDispararRecordatorioEndpoint)
 
 export default router

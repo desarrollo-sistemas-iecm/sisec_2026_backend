@@ -59,6 +59,49 @@ export const auth = async (req, res, next) => {
       idsede: u.id_distrito,
       id_distrito: u.id_distrito
     }
+
+    // Si es usuario distrital (operador, id_tipousuario === 1), verificar si el sistema está en periodo de cierre
+    if (Number(u.id_tipousuario) === 1) {
+      try {
+        const cierreRes = await newPool.request().query(`
+          SELECT TOP 1 fecha_hora_cierre, fecha_hora_apertura, mensaje_bloqueo, status
+          FROM config_fechas_acceso
+          WHERE tipo_alcance = 'cierre_sistema' AND status = 1
+          ORDER BY id_config DESC
+        `)
+        if (cierreRes.recordset.length > 0) {
+          const config = cierreRes.recordset[0]
+          const now = new Date()
+          const fCierre = config.fecha_hora_cierre ? new Date(config.fecha_hora_cierre) : null
+          const fApertura = config.fecha_hora_apertura ? new Date(config.fecha_hora_apertura) : null
+
+          let bloqueado = false
+          if (fApertura && fCierre) {
+            const dInicio = new Date(Math.min(fApertura.getTime(), fCierre.getTime()))
+            const dFin = new Date(Math.max(fApertura.getTime(), fCierre.getTime()))
+            bloqueado = !(now >= dInicio && now <= dFin)
+          } else if (fCierre) {
+            bloqueado = now > fCierre
+          } else if (fApertura) {
+            bloqueado = now < fApertura
+          } else {
+            bloqueado = true
+          }
+
+          if (bloqueado) {
+            return res.status(403).json({
+              success: false,
+              cierre_sistema: true,
+              message: config.mensaje_bloqueo || 'El sistema se encuentra en periodo de cierre institucional programado conforme a la normativa. Reanudación de servicio próximamente.',
+              code: 'CIERRE_SISTEMA'
+            })
+          }
+        }
+      } catch {
+        // En caso de incidencia en verificación secundaria, no bloquear
+      }
+    }
+
     return next()
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {

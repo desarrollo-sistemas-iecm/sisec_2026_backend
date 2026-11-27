@@ -16,11 +16,17 @@ export const verifyCredentials = async (usuario, contrasena) => {
     const newResult = await newReq.query(`
       SELECT id_usuario, usuario, password, status, id_tipousuario, id_distrito
       FROM usuarios
-      WHERE usuario = @usuario AND status = 1
+      WHERE usuario = @usuario
     `)
 
     const userRow = newResult.recordset[0]
     if (userRow) {
+      if (userRow.status === false || Number(userRow.status) === 0) {
+        const inactiveErr = new Error('Tu cuenta ha sido desactivada temporalmente por la Dirección de Educación Cívica. Contacta al Administrador.')
+        inactiveErr.code = 'CUENTA_DESACTIVADA'
+        throw inactiveErr
+      }
+
       const stored = String(userRow.password ?? '').trim()
       let valid = false
       if (isBcryptHash(stored)) {
@@ -42,6 +48,7 @@ export const verifyCredentials = async (usuario, contrasena) => {
       }
     }
   } catch (err) {
+    if (err.code === 'CUENTA_DESACTIVADA') throw err
     // Continuar a fallback
   }
 

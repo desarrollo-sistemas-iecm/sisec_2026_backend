@@ -18,6 +18,59 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Credenciales incorrectas' })
     }
 
+    // Validar ventana de cierre programado del sistema (Inicio de sesión)
+    try {
+      const pool = await getNewPool()
+      const cierreRes = await pool.request().query(`
+        SELECT TOP 1 fecha_hora_cierre, fecha_hora_apertura, mensaje_bloqueo, status, permite_superadmin
+        FROM config_fechas_acceso
+        WHERE tipo_alcance = 'cierre_sistema' AND status = 1
+        ORDER BY id_config DESC
+      `)
+
+      if (cierreRes.recordset.length > 0) {
+        const config = cierreRes.recordset[0]
+        const now = new Date()
+        const fCierre = config.fecha_hora_cierre ? new Date(config.fecha_hora_cierre) : null
+        const fApertura = config.fecha_hora_apertura ? new Date(config.fecha_hora_apertura) : null
+
+        // Bloqueo ÚNICAMENTE para cuentas distritales (permiso = 1 / operador)
+        const isDistrital = Number(user.permiso || user.id_tipousuario) === 1
+        if (isDistrital) {
+          let bloqueado = false
+          if (fApertura && fCierre) {
+            const dInicio = new Date(Math.min(fApertura.getTime(), fCierre.getTime()))
+            const dFin = new Date(Math.max(fApertura.getTime(), fCierre.getTime()))
+            // El sistema está abierto solo en el rango [dInicio, dFin].
+            // Si la fecha actual ya superó el cierre o aún no abre, se bloquea.
+            bloqueado = !(now >= dInicio && now <= dFin)
+          } else if (fCierre) {
+            // Si solo se especificó fecha de cierre y ya pasó, el sistema cerró
+            bloqueado = now > fCierre
+          } else if (fApertura) {
+            // Si solo se especificó fecha de apertura y aún no llega, el sistema no ha abierto
+            bloqueado = now < fApertura
+          } else {
+            bloqueado = true
+          }
+
+          if (bloqueado) {
+            const msg = config.mensaje_bloqueo || 'El sistema se encuentra en periodo de cierre institucional programado conforme a la normativa. Reanudación de servicio próximamente.'
+            logWarn(`[AUTH] ⛔ Acceso distrital bloqueado por cierre institucional programado — Usuario: ${usuario}`)
+            return res.status(403).json({
+              success: false,
+              cierre_sistema: true,
+              message: msg,
+              fecha_cierre: config.fecha_hora_cierre,
+              fecha_apertura: config.fecha_hora_apertura
+            })
+          }
+        }
+      }
+    } catch (cierreErr) {
+      logger.warn(`[AUTH] Error validando cierre programado: ${cierreErr.message}`)
+    }
+
     const sesionId = crypto.randomUUID()
     const ip = req.ip || req.headers['x-forwarded-for'] || '::1'
     const userAgent = (req.headers['user-agent'] || 'Desconocido').substring(0, 255)
@@ -108,6 +161,9 @@ export const login = async (req, res, next) => {
     
     return res.json({ success: true, token, user: payload, mostrarAlertaLogin })
   } catch (error) {
+    if (error.code === 'CUENTA_DESACTIVADA') {
+      return res.status(403).json({ success: false, message: error.message })
+    }
     return next(error)
   }
 }

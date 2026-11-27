@@ -1,5 +1,5 @@
 // Reporte model for SISEC CC 2026
-import { getPool, sql } from '../config/db.js'
+import { getPool, getNewPool, sql } from '../config/db.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -748,5 +748,320 @@ export const ejecutarReporte = async (filters) => {
 
     default:
       return { titulo: 'Reporte', columnas: [], filas: [] }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NUEVOS REPORTES INTEGRALES 2027 Y HISTÓRICOS OFICIALES
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 1. Reporte Integral de Acciones Educativas / Acciones Afirmativas (2027)
+ */
+export const getReporteAccionesEducativas = async (filters) => {
+  const pool = await getNewPool()
+  const req = pool.request()
+
+  const whereClauses = ['ae.folio_accion_educativa IS NOT NULL']
+
+  // Filtro por Distrito / Permiso
+  if (filters.permiso !== 2) {
+    req.input('distritoPermiso', sql.Int, Number(filters.idsede || 1))
+    whereClauses.push('(COALESCE(u.id_distrito, 1) = @distritoPermiso)')
+  } else if (filters.distrito && Number(filters.distrito) > 0) {
+    req.input('distrito', sql.Int, Number(filters.distrito))
+    whereClauses.push('(COALESCE(u.id_distrito, 1) = @distrito)')
+  }
+
+  // Filtro por Fecha (formato 2026-11-23)
+  if (filters.fechaInic && filters.fechaFin) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    req.input('fechaFin', sql.VarChar(10), String(filters.fechaFin).substring(0, 10))
+    whereClauses.push(`(
+      (CONVERT(VARCHAR(10), c.fecha_realizacion_accion, 120) BETWEEN @fechaInic AND @fechaFin)
+      OR (c.fecha_realizacion_accion IS NULL AND CONVERT(VARCHAR(10), ae.fecha_programada, 120) BETWEEN @fechaInic AND @fechaFin)
+    )`)
+  } else if (filters.fechaInic) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    whereClauses.push(`(
+      CONVERT(VARCHAR(10), COALESCE(c.fecha_realizacion_accion, ae.fecha_programada), 120) = @fechaInic
+    )`)
+  }
+
+  const query = `
+    SELECT 
+      ae.id_acciones_educativas,
+      ae.folio_accion_educativa,
+      COALESCE(u.id_distrito, 1) AS id_distrito,
+      COALESCE(cat.nombre_accion, 'Acción Educativa') AS nombre_accion,
+      COALESCE(cat.color, '#6B2D8B') AS color_accion,
+      ae.nombre_institucion,
+      COALESCE(c.modalidad, 0) AS modalidad,
+      CASE WHEN COALESCE(c.modalidad, 0) = 1 THEN 'Virtual' ELSE 'Presencial' END AS modalidad_texto,
+      CONVERT(VARCHAR(10), COALESCE(c.fecha_realizacion_accion, ae.fecha_programada), 120) AS fecha_realizacion,
+      COALESCE(c.duracion_hora, ae.hora_programada, '01:00') AS hora_programada,
+      COALESCE(c.duracion_real_actividad, '01:00') AS duracion_real,
+      ae.id_estado,
+      CASE ae.id_estado
+        WHEN 1 THEN 'Sin Capturar'
+        WHEN 2 THEN 'Capturada'
+        WHEN 3 THEN 'Finalizada'
+        ELSE 'Sin Capturar'
+      END AS estado_texto,
+      -- Población Mujeres (6 grupos)
+      COALESCE(c.G_mujeres_1, 0) AS m_1,
+      COALESCE(c.G_mujeres_2, 0) AS m_2,
+      COALESCE(c.G_mujeres_3, 0) AS m_3,
+      COALESCE(c.G_mujeres_4, 0) AS m_4,
+      COALESCE(c.G_mujeres_5, 0) AS m_5,
+      COALESCE(c.G_mujeres_6, 0) AS m_6,
+      (COALESCE(c.G_mujeres_1, 0) + COALESCE(c.G_mujeres_2, 0) + COALESCE(c.G_mujeres_3, 0) + COALESCE(c.G_mujeres_4, 0) + COALESCE(c.G_mujeres_5, 0) + COALESCE(c.G_mujeres_6, 0)) AS total_mujeres,
+      -- Población Hombres (6 grupos)
+      COALESCE(c.G_hombres_1, 0) AS h_1,
+      COALESCE(c.G_hombres_2, 0) AS h_2,
+      COALESCE(c.G_hombres_3, 0) AS h_3,
+      COALESCE(c.G_hombres_4, 0) AS h_4,
+      COALESCE(c.G_hombres_5, 0) AS h_5,
+      COALESCE(c.G_hombres_6, 0) AS h_6,
+      (COALESCE(c.G_hombres_1, 0) + COALESCE(c.G_hombres_2, 0) + COALESCE(c.G_hombres_3, 0) + COALESCE(c.G_hombres_4, 0) + COALESCE(c.G_hombres_5, 0) + COALESCE(c.G_hombres_6, 0)) AS total_hombres,
+      -- Otras identidades
+      (COALESCE(c.G_no_binario_1, 0) + COALESCE(c.G_no_binario_2, 0) + COALESCE(c.G_no_binario_3, 0) + COALESCE(c.G_no_binario_4, 0) + COALESCE(c.G_no_binario_5, 0) + COALESCE(c.G_no_binario_6, 0)) AS total_no_binario,
+      (COALESCE(c.G_otro_1, 0) + COALESCE(c.G_otro_2, 0) + COALESCE(c.G_otro_3, 0) + COALESCE(c.G_otro_4, 0) + COALESCE(c.G_otro_5, 0) + COALESCE(c.G_otro_6, 0)) AS total_otro,
+      (COALESCE(c.G_prefiero_no_decirlo_1, 0) + COALESCE(c.G_prefiero_no_decirlo_2, 0) + COALESCE(c.G_prefiero_no_decirlo_3, 0) + COALESCE(c.G_prefiero_no_decirlo_4, 0) + COALESCE(c.G_prefiero_no_decirlo_5, 0) + COALESCE(c.G_prefiero_no_decirlo_6, 0)) AS total_pnd,
+      -- Expediente
+      CASE WHEN c.formato_registro_accion_pdf IS NOT NULL THEN 'SI' ELSE 'NO' END AS tiene_registro,
+      CASE WHEN c.evidencia_fotografia IS NOT NULL THEN 'SI' ELSE 'NO' END AS tiene_foto,
+      CASE WHEN c.encuesta_satisfaccion_pdf IS NOT NULL THEN 'SI' ELSE 'NO' END AS tiene_encuestas_pdf,
+      (SELECT COUNT(*) FROM encuestas e WHERE e.id_acciones_educativas = ae.id_acciones_educativas) AS total_encuestas_sistema
+    FROM acciones_educativas ae
+    LEFT JOIN usuarios u ON ae.id_usuario = u.id_usuario
+    LEFT JOIN cat_acciones cat ON ae.id_accion = cat.id_accion
+    LEFT JOIN captura c ON ae.id_acciones_educativas = c.id_acciones_educativas
+    WHERE ${whereClauses.join(' AND ')}
+    ORDER BY COALESCE(u.id_distrito, 1), ae.id_acciones_educativas DESC
+  `
+
+  const res = await req.query(query)
+  const registros = res.recordset.map((r, idx) => {
+    const totalOtras = (r.total_no_binario || 0) + (r.total_otro || 0) + (r.total_pnd || 0)
+    const totalGeneral = (r.total_mujeres || 0) + (r.total_hombres || 0) + totalOtras
+    return {
+      num: idx + 1,
+      ...r,
+      total_otras: totalOtras,
+      total_general: totalGeneral
+    }
+  })
+
+  // Totales de resumen
+  const resumen = {
+    totalAcciones: registros.length,
+    totalMujeres: registros.reduce((acc, r) => acc + (r.total_mujeres || 0), 0),
+    totalHombres: registros.reduce((acc, r) => acc + (r.total_hombres || 0), 0),
+    totalOtras: registros.reduce((acc, r) => acc + (r.total_otras || 0), 0),
+    totalGeneral: registros.reduce((acc, r) => acc + (r.total_general || 0), 0),
+    totalFinalizadas: registros.filter(r => r.id_estado === 3).length,
+    totalCapturadas: registros.filter(r => r.id_estado === 2).length,
+    totalSinCapturar: registros.filter(r => r.id_estado === 1).length,
+    totalEncuestas: registros.reduce((acc, r) => acc + (r.total_encuestas_sistema || 0), 0)
+  }
+
+  return {
+    titulo: 'Reporte de Acciones Educativas 2027',
+    registros,
+    resumen
+  }
+}
+
+/**
+ * 2. Reporte de Encuestas de Satisfacción (2027) vinculadas a sus Acciones Educativas
+ */
+export const getReporteEncuestas = async (filters) => {
+  const pool = await getNewPool()
+  const req = pool.request()
+
+  const whereClauses = ['1=1']
+
+  if (filters.permiso !== 2) {
+    req.input('distritoPermiso', sql.Int, Number(filters.idsede || 1))
+    whereClauses.push('(COALESCE(u.id_distrito, 1) = @distritoPermiso)')
+  } else if (filters.distrito && Number(filters.distrito) > 0) {
+    req.input('distrito', sql.Int, Number(filters.distrito))
+    whereClauses.push('(COALESCE(u.id_distrito, 1) = @distrito)')
+  }
+
+  if (filters.fechaInic && filters.fechaFin) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    req.input('fechaFin', sql.VarChar(10), String(filters.fechaFin).substring(0, 10))
+    whereClauses.push('CONVERT(VARCHAR(10), e.fecha_alta, 120) BETWEEN @fechaInic AND @fechaFin')
+  } else if (filters.fechaInic) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    whereClauses.push('CONVERT(VARCHAR(10), e.fecha_alta, 120) = @fechaInic')
+  }
+
+  const query = `
+    SELECT 
+      e.id_encuestas,
+      e.folio_encuesta,
+      e.folio_accion_educativa,
+      e.consecutivo_encuesta,
+      COALESCE(u.id_distrito, 1) AS id_distrito,
+      COALESCE(cat.nombre_accion, 'Acción Educativa') AS nombre_accion,
+      COALESCE(cat.color, '#6B2D8B') AS color_accion,
+      CONVERT(VARCHAR(10), ae.fecha_programada, 120) AS fecha_accion,
+      e.p1_edad_persona_asistente AS edad,
+      CASE e.id_genero
+        WHEN 1 THEN 'Mujer'
+        WHEN 2 THEN 'Hombre'
+        WHEN 3 THEN 'No binario'
+        WHEN 4 THEN 'Otro'
+        WHEN 5 THEN 'Prefiero no decirlo'
+        ELSE 'No especificado'
+      END AS genero,
+      CONVERT(VARCHAR(10), e.fecha_alta, 120) AS fecha_registro,
+      e.p3, e.p4, e.p5, e.p6, e.p7, e.p8,
+      CAST(ROUND((CAST(e.p3 AS FLOAT) + e.p4 + e.p5 + e.p6 + e.p7 + e.p8) / 6.0, 2) AS DECIMAL(4,2)) AS promedio_satisfaccion,
+      CASE 
+        WHEN (CAST(e.p3 AS FLOAT) + e.p4 + e.p5 + e.p6 + e.p7 + e.p8) / 6.0 >= 4.5 THEN 'Excelente'
+        WHEN (CAST(e.p3 AS FLOAT) + e.p4 + e.p5 + e.p6 + e.p7 + e.p8) / 6.0 >= 3.5 THEN 'Bueno'
+        WHEN (CAST(e.p3 AS FLOAT) + e.p4 + e.p5 + e.p6 + e.p7 + e.p8) / 6.0 >= 2.5 THEN 'Regular'
+        ELSE 'Deficiente'
+      END AS nivel_satisfaccion
+    FROM encuestas e
+    LEFT JOIN acciones_educativas ae ON e.id_acciones_educativas = ae.id_acciones_educativas
+    LEFT JOIN usuarios u ON ae.id_usuario = u.id_usuario
+    LEFT JOIN cat_acciones cat ON ae.id_accion = cat.id_accion
+    WHERE ${whereClauses.join(' AND ')}
+    ORDER BY COALESCE(u.id_distrito, 1), e.id_encuestas DESC
+  `
+
+  const res = await req.query(query)
+  const registros = res.recordset.map((r, idx) => ({
+    num: idx + 1,
+    ...r
+  }))
+
+  const total = registros.length
+  const promedioGlobal = total > 0
+    ? (registros.reduce((acc, r) => acc + Number(r.promedio_satisfaccion || 0), 0) / total).toFixed(2)
+    : 0
+
+  const resumen = {
+    totalEncuestas: total,
+    promedioGlobal: Number(promedioGlobal),
+    promP3: total > 0 ? (registros.reduce((acc, r) => acc + (r.p3 || 0), 0) / total).toFixed(2) : 0,
+    promP4: total > 0 ? (registros.reduce((acc, r) => acc + (r.p4 || 0), 0) / total).toFixed(2) : 0,
+    promP5: total > 0 ? (registros.reduce((acc, r) => acc + (r.p5 || 0), 0) / total).toFixed(2) : 0,
+    promP6: total > 0 ? (registros.reduce((acc, r) => acc + (r.p6 || 0), 0) / total).toFixed(2) : 0,
+    promP7: total > 0 ? (registros.reduce((acc, r) => acc + (r.p7 || 0), 0) / total).toFixed(2) : 0,
+    promP8: total > 0 ? (registros.reduce((acc, r) => acc + (r.p8 || 0), 0) / total).toFixed(2) : 0,
+    distribucionGenero: {
+      mujeres: registros.filter(r => r.genero === 'Mujer').length,
+      hombres: registros.filter(r => r.genero === 'Hombre').length,
+      otros: registros.filter(r => !['Mujer', 'Hombre'].includes(r.genero)).length
+    }
+  }
+
+  return {
+    titulo: 'Reporte de Encuestas de Satisfacción 2027',
+    registros,
+    resumen
+  }
+}
+
+/**
+ * 3. Reporte Histórico de Talleres e Intervenciones Educativas (sisecycc2024)
+ * Estructura oficial del formato histórico con desglose M y H
+ */
+export const getReporteHistorico = async (filters) => {
+  const pool = await getPool()
+  const req = pool.request()
+
+  const whereClauses = ['1=1']
+
+  if (filters.permiso !== 2) {
+    req.input('distritoPermiso', sql.Int, Number(filters.idsede || 1))
+    whereClauses.push('(COALESCE(ti.id_distrito, u.idsede, 1) = @distritoPermiso)')
+  } else if (filters.distrito && Number(filters.distrito) > 0) {
+    req.input('distrito', sql.Int, Number(filters.distrito))
+    whereClauses.push('(COALESCE(ti.id_distrito, u.idsede, 1) = @distrito)')
+  }
+
+  if (filters.fechaInic && filters.fechaFin) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    req.input('fechaFin', sql.VarChar(10), String(filters.fechaFin).substring(0, 10))
+    whereClauses.push('ti.fecha >= @fechaInic AND ti.fecha <= @fechaFin')
+  } else if (filters.fechaInic) {
+    req.input('fechaInic', sql.VarChar(10), String(filters.fechaInic).substring(0, 10))
+    whereClauses.push('ti.fecha = @fechaInic')
+  }
+
+  const query = `
+    SELECT 
+      ti.idcurso,
+      COALESCE(ti.id_distrito, u.idsede, 1) AS id_distrito,
+      COALESCE(cc.descripcion, 'Taller o Intervención') AS curso,
+      CASE WHEN ti.modalidad = 0 THEN 'SI' ELSE '' END AS presencial,
+      CASE WHEN ti.modalidad = 1 THEN 'SI' ELSE '' END AS virtual,
+      COALESCE(ti.lugar, '') AS institucion,
+      ti.duracionhrs,
+      ti.duracionmin,
+      ti.fecha,
+      COALESCE(ti.comentarios, '') AS comentarios,
+      CASE WHEN ti.convenio = 1 THEN 'SI' ELSE 'NO' END AS convenio,
+      -- Población Mujeres (8 rangos)
+      COALESCE(ti.pmujeres1, 0) AS m1,
+      COALESCE(ti.pmujeres2, 0) AS m2,
+      COALESCE(ti.pmujeres3, 0) AS m3,
+      COALESCE(ti.pmujeres4, 0) AS m4,
+      COALESCE(ti.pmujeres5, 0) AS m5,
+      COALESCE(ti.pmujeres6, 0) AS m6,
+      COALESCE(ti.pmujeres7, 0) AS m7,
+      COALESCE(ti.pmujeres8, 0) AS m8,
+      -- Población Hombres (8 rangos)
+      COALESCE(ti.phombres1, 0) AS h1,
+      COALESCE(ti.phombres2, 0) AS h2,
+      COALESCE(ti.phombres3, 0) AS h3,
+      COALESCE(ti.phombres4, 0) AS h4,
+      COALESCE(ti.phombres5, 0) AS h5,
+      COALESCE(ti.phombres6, 0) AS h6,
+      COALESCE(ti.phombres7, 0) AS h7,
+      COALESCE(ti.phombres8, 0) AS h8
+    FROM sisecycc2024.dbo.sisec_talleres_intervenciones ti
+    LEFT JOIN sisecycc2024.dbo.sisec_cat_cursos cc ON ti.idcatcurso = cc.idcurso
+    LEFT JOIN sisecycc2024.dbo.sisec_usuarios u ON ti.idusuario = u.idusuario
+    WHERE ${whereClauses.join(' AND ')}
+    ORDER BY COALESCE(ti.id_distrito, u.idsede, 1), ti.fecha DESC, ti.idcurso DESC
+  `
+
+  const res = await req.query(query)
+  const registros = res.recordset.map((r, idx) => {
+    const totalM = (r.m1 || 0) + (r.m2 || 0) + (r.m3 || 0) + (r.m4 || 0) + (r.m5 || 0) + (r.m6 || 0) + (r.m7 || 0) + (r.m8 || 0)
+    const totalH = (r.h1 || 0) + (r.h2 || 0) + (r.h3 || 0) + (r.h4 || 0) + (r.h5 || 0) + (r.h6 || 0) + (r.h7 || 0) + (r.h8 || 0)
+    const duracion = `${String(r.duracionhrs || 0).padStart(2, '0')}:${String(r.duracionmin || 0).padStart(2, '0')}`
+    return {
+      num: idx + 1,
+      ...r,
+      total_m: totalM,
+      total_h: totalH,
+      total_general: totalM + totalH,
+      duracion_formato: duracion
+    }
+  })
+
+  const resumen = {
+    totalActividades: registros.length,
+    totalMujeres: registros.reduce((acc, r) => acc + (r.total_m || 0), 0),
+    totalHombres: registros.reduce((acc, r) => acc + (r.total_h || 0), 0),
+    totalGeneral: registros.reduce((acc, r) => acc + (r.total_general || 0), 0),
+    presenciales: registros.filter(r => r.presencial === 'SI').length,
+    virtuales: registros.filter(r => r.virtual === 'SI').length,
+    conConvenio: registros.filter(r => r.convenio === 'SI').length
+  }
+
+  return {
+    titulo: 'Reporte Histórico de Talleres e Intervenciones Educativas',
+    registros,
+    resumen
   }
 }
