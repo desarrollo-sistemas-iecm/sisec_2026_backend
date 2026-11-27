@@ -23,8 +23,16 @@ export const getNotificaciones = async (idsede, idusuario, idpermiso) => {
         CONVERT(VARCHAR(19), fecha_envio, 120) AS fecha_creacion
       FROM mensajes_notificaciones
       WHERE 
-        (id_usuario_destino IS NULL OR id_usuario_destino = 0 OR id_usuario_destino = @idusuario)
-        AND (@idpermiso >= 2 OR id_distrito_origen = @idsede OR id_usuario_destino = @idusuario)
+        (@idpermiso >= 2)
+        OR
+        (
+          (id_usuario_destino = @idusuario)
+          OR (id_distrito_origen = @idsede)
+          OR (
+            (id_distrito_origen = 0 OR id_distrito_origen IS NULL)
+            AND (id_usuario_destino = 0 OR id_usuario_destino IS NULL)
+          )
+        )
       ORDER BY fecha_envio DESC
     `)
 
@@ -88,17 +96,23 @@ export const crearNotificacion = async (payload) => {
     const pool = await getNewPool()
     const request = pool.request()
 
-    request.input('titulo', sql.VarChar(120), payload.titulo || 'Notificación')
-    request.input('mensaje', sql.VarChar(500), payload.mensaje || '')
-    request.input('idsede_origen', sql.Int, Number(payload.idsede_origen) || 0)
+    const tipo = payload.tipo || 'fecha_habilitada'
+    const idsede = Number(payload.idsede_destino ?? payload.idsede_origen ?? 0)
+
+    request.input('titulo', sql.VarChar(120), String(payload.titulo || 'Notificación').slice(0, 120))
+    request.input('mensaje', sql.VarChar(500), String(payload.mensaje || '').slice(0, 500))
+    request.input('idsede_origen', sql.Int, idsede)
     request.input('idusuario_destino', sql.Int, Number(payload.idusuario_destino) || 0)
+    request.input('estado_solicitud', sql.VarChar(50), tipo)
 
     await request.query(`
       INSERT INTO mensajes_notificaciones (
         id_distrito_origen, id_usuario_destino, titulo, mensaje_base, estado_solicitud, leido, status, fecha_envio
       ) VALUES (
-        @idsede_origen, @idusuario_destino, @titulo, @mensaje, 'PENDIENTE', 0, 1, GETDATE()
+        @idsede_origen, @idusuario_destino, @titulo, @mensaje, @estado_solicitud, 0, 1, GETDATE()
       )
     `)
-  } catch (error) {}
+  } catch (error) {
+    console.error('[NOTIFICACIONES] Error al crear notificación:', error)
+  }
 }

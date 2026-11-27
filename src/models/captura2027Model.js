@@ -56,7 +56,7 @@ export const getSiguienteFolioAccion = async (id_distrito) => {
   const pool = await getNewPool()
   const distNum = Number(id_distrito !== undefined && id_distrito !== null ? id_distrito : 1)
   const distStr = String(distNum).padStart(2, '0')
-  const prefix = distNum === 0 ? 'AE-CEN-2027-' : `AE-DD${distStr}-2027-`
+  const prefix = distNum === 0 ? 'AE-CEN-2027-F' : `AE-DD${distStr}-2027-F`
 
   const req = pool.request()
   req.input('distrito', sql.Int, distNum)
@@ -197,13 +197,18 @@ export const guardarCapturaInicial = async (id_acciones_educativas, payload, fil
   const fallbackPool = await getPool()
   const formattedDistrito = String(id_distrito || 1).padStart(2, '0')
   const formattedId = String(id_acciones_educativas).padStart(4, '0')
-  const nuevoFolioAccionFallback = `AE-DD${formattedDistrito}-2027-${formattedId}`
+  const nuevoFolioAccionFallback = `AE-DD${formattedDistrito}-2027-F${formattedId}`
+
+  const durStr = String(payload.duracion_real_actividad || payload.duracion_hora || '01:00')
+  const durParts = durStr.split(':')
+  const dHrs = parseInt(durParts[0], 10) || 1
+  const dMin = parseInt(durParts[1], 10) || 0
 
   const request = fallbackPool.request()
   request.input('idcurso', sql.Int, id_acciones_educativas)
   request.input('modalidad', sql.Bit, payload.modalidad ? 1 : 0)
-  request.input('duracionhrs', sql.Int, parseInt(String(payload.duracion_hora || '1').split(':')[0], 10) || 1)
-  request.input('duracionmin', sql.Int, parseInt(String(payload.duracion_hora || '0').split(':')[1], 10) || 0)
+  request.input('duracionhrs', sql.Int, dHrs)
+  request.input('duracionmin', sql.Int, dMin)
   request.input('nombre_archivo', sql.VarChar(80), filenames.formato_registro_accion_pdf || null)
   request.input('nombre_archivo2', sql.VarChar(80), filenames.formato_asistencia_accion_pdf || null)
   request.input('nombre_archivo3', sql.VarChar(80), filenames.evidencia_fotografia || null)

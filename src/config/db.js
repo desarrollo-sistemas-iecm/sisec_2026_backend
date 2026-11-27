@@ -22,7 +22,10 @@ const createConfig = (dbEnv) => ({
 
 export const getHistoricalPool = async () => {
   try {
-    if (!historicalPool) {
+    if (!historicalPool || !historicalPool.connected) {
+      if (historicalPool) {
+        try { await historicalPool.close() } catch (_) {}
+      }
       const cfg = createConfig(env.dbHistorical)
       historicalPool = new sql.ConnectionPool(cfg)
       await historicalPool.connect()
@@ -38,7 +41,10 @@ export const getHistoricalPool = async () => {
 
 export const getNewPool = async () => {
   try {
-    if (!newPool) {
+    if (!newPool || !newPool.connected) {
+      if (newPool) {
+        try { await newPool.close() } catch (_) {}
+      }
       const cfg = createConfig(env.dbNew)
       newPool = new sql.ConnectionPool(cfg)
       await newPool.connect()
@@ -54,7 +60,10 @@ export const getNewPool = async () => {
 
 export const getPool = async () => {
   try {
-    if (!defaultPool) {
+    if (!defaultPool || !defaultPool.connected) {
+      if (defaultPool) {
+        try { await defaultPool.close() } catch (_) {}
+      }
       const cfg = createConfig(env.db)
       defaultPool = new sql.ConnectionPool(cfg)
       await defaultPool.connect()
@@ -68,7 +77,14 @@ export const getPool = async () => {
 }
 
 export const connectDb = async () => {
-  return getPool()
+  const poolMain = await getPool()
+  let poolHist = null
+  try {
+    poolHist = await getHistoricalPool()
+  } catch (err) {
+    logger.warn(`[BD] ⚠️ No se pudo inicializar pool histórico: ${err.message}`)
+  }
+  return { poolMain, poolHist }
 }
 
 export { sql }

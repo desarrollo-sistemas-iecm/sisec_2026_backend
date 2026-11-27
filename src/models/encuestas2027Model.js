@@ -21,6 +21,51 @@ export const getSiguienteConsecutivoEncuesta = async (id_acciones_educativas) =>
   return 1
 }
 
+export const getSiguienteFolioEncuesta = async (id_acciones_educativas, folioAccionParam = '', id_distrito = 1, consecutivoParam = null) => {
+  const pool = await getNewPool()
+  let folioAccion = String(folioAccionParam || '').trim()
+  let distNum = Number(id_distrito || 1)
+
+  if (!folioAccion || folioAccion.toLowerCase().includes('sin folio')) {
+    if (id_acciones_educativas) {
+      const fRes = await pool.request()
+        .input('id', sql.Int, id_acciones_educativas)
+        .query(`
+          SELECT ae.folio_accion_educativa, ISNULL(u.id_distrito, 1) AS id_distrito
+          FROM acciones_educativas ae
+          LEFT JOIN usuarios u ON ae.id_usuario = u.id_usuario
+          WHERE ae.id_acciones_educativas = @id
+        `)
+      if (fRes.recordset.length > 0) {
+        folioAccion = fRes.recordset[0].folio_accion_educativa || ''
+        distNum = Number(fRes.recordset[0].id_distrito || distNum)
+      }
+    }
+  }
+
+  if (!folioAccion || folioAccion.toLowerCase().includes('sin folio')) {
+    const distStr = String(distNum).padStart(2, '0')
+    const actId = String(id_acciones_educativas || 1).padStart(4, '0')
+    folioAccion = `AE-DD${distStr}-2027-F${actId}`
+  }
+
+  // Transformar prefijo de acción educativa (AE-...) al prefijo de encuesta (EN-...)
+  let baseEncuesta = folioAccion
+  if (baseEncuesta.startsWith('AE-')) {
+    baseEncuesta = 'EN-' + baseEncuesta.substring(3)
+  } else if (!baseEncuesta.startsWith('EN-')) {
+    baseEncuesta = 'EN-' + baseEncuesta
+  }
+
+  const consecutivo = (consecutivoParam !== null && consecutivoParam !== undefined)
+    ? Number(consecutivoParam)
+    : await getSiguienteConsecutivoEncuesta(id_acciones_educativas)
+
+  const consecutivoStr = String(consecutivo).padStart(2, '0')
+
+  return `${baseEncuesta}-${consecutivoStr}`
+}
+
 export const registrarEncuesta2027 = async (payload) => {
   const pool = await getNewPool()
   const checkTable = await pool.request().query(`
@@ -28,15 +73,36 @@ export const registrarEncuesta2027 = async (payload) => {
   `)
 
   let folioAccion = payload.folio_accion_educativa
+  let idDistrito = payload.id_distrito || null
+
+  const fRes = await pool.request()
+    .input('id', sql.Int, payload.id_acciones_educativas)
+    .query(`
+      SELECT ae.folio_accion_educativa, ISNULL(u.id_distrito, 1) AS id_distrito
+      FROM acciones_educativas ae
+      LEFT JOIN usuarios u ON ae.id_usuario = u.id_usuario
+      WHERE ae.id_acciones_educativas = @id
+    `)
+
+  if (fRes.recordset.length > 0) {
+    if (!folioAccion) folioAccion = fRes.recordset[0].folio_accion_educativa
+    if (!idDistrito) idDistrito = fRes.recordset[0].id_distrito
+  }
+  if (!idDistrito) idDistrito = 1
   if (!folioAccion) {
-    const fRes = await pool.request()
-      .input('id', sql.Int, payload.id_acciones_educativas)
-      .query(`SELECT folio_accion_educativa FROM acciones_educativas WHERE id_acciones_educativas = @id`)
-    folioAccion = fRes.recordset[0]?.folio_accion_educativa || 'AE'
+    const distStr = String(idDistrito).padStart(2, '0')
+    const actId = String(payload.id_acciones_educativas).padStart(4, '0')
+    folioAccion = `AE-DD${distStr}-2027-F${actId}`
+    try {
+      await pool.request()
+        .input('id', sql.Int, payload.id_acciones_educativas)
+        .input('folio', sql.VarChar(30), folioAccion)
+        .query('UPDATE acciones_educativas SET folio_accion_educativa = @folio WHERE id_acciones_educativas = @id AND folio_accion_educativa IS NULL')
+    } catch (e) {}
   }
 
   const consecutivo = await getSiguienteConsecutivoEncuesta(payload.id_acciones_educativas)
-  const folioEncuesta = `ENC-${folioAccion}-${consecutivo}`
+  const folioEncuesta = await getSiguienteFolioEncuesta(payload.id_acciones_educativas, folioAccion, idDistrito, consecutivo)
 
   if (checkTable.recordset.length > 0) {
     const request = pool.request()

@@ -23,9 +23,10 @@ export const listUsuarios = async () => {
         nombre_completo,
         correo,
         status AS estado,
+        status,
         CONVERT(varchar(19), fecha_alta, 120) AS fecha_registro
       FROM usuarios
-      WHERE status = 1
+      WHERE status >= 0
       ORDER BY id_distrito ASC, id_tipousuario ASC
     `)
     return res.recordset
@@ -133,38 +134,49 @@ export const updateUsuario = async (id, payload) => {
   const pool = await getNewPool()
   const request = pool.request()
 
-  const idPermiso = parseInt(payload.idpermiso || payload.id_tipousuario || 1, 10)
-  let idSede = parseInt(payload.idsede !== undefined ? payload.idsede : (payload.id_distrito !== undefined ? payload.id_distrito : 1), 10)
-  if (idPermiso >= 2) {
-    idSede = 0
+  request.input('id', sql.Int, id)
+
+  const setClauses = ['fecha_modif = GETDATE()']
+
+  if (payload.idpermiso !== undefined || payload.id_tipousuario !== undefined) {
+    const idPermiso = parseInt(payload.idpermiso || payload.id_tipousuario || 1, 10)
+    request.input('id_tipousuario', sql.Int, idPermiso)
+    setClauses.push('id_tipousuario = @id_tipousuario')
   }
 
-  request.input('id', sql.Int, id)
-  request.input('id_distrito', sql.Int, idSede === 0 ? null : idSede)
-  request.input('id_tipousuario', sql.Int, idPermiso)
-
-  let query = `
-    UPDATE usuarios
-    SET id_distrito = @id_distrito, id_tipousuario = @id_tipousuario, fecha_modif = GETDATE()
-  `
+  if (payload.idsede !== undefined || payload.id_distrito !== undefined) {
+    let idSede = parseInt(payload.idsede !== undefined ? payload.idsede : payload.id_distrito, 10)
+    if (Number(payload.idpermiso) >= 2 || Number(payload.id_tipousuario) >= 2) {
+      idSede = 0
+    }
+    request.input('id_distrito', sql.Int, idSede === 0 ? null : idSede)
+    setClauses.push('id_distrito = @id_distrito')
+  }
 
   if (payload.password) {
     const cleanPassword = String(payload.password ?? '').trim()
     request.input('password', sql.VarChar(255), cleanPassword)
-    query += `, password = @password`
+    setClauses.push('password = @password')
   }
 
-  if (payload.nombre_completo) {
+  if (payload.nombre_completo !== undefined) {
     request.input('nombre_completo', sql.VarChar(120), String(payload.nombre_completo).trim())
-    query += `, nombre_completo = @nombre_completo`
+    setClauses.push('nombre_completo = @nombre_completo')
   }
 
-  if (payload.correo) {
+  if (payload.correo !== undefined) {
     request.input('correo', sql.VarChar(100), String(payload.correo).trim())
-    query += `, correo = @correo`
+    setClauses.push('correo = @correo')
   }
 
-  query += ` WHERE id_usuario = @id`
+  if (payload.status !== undefined) {
+    const statusVal = payload.status ? 1 : 0
+    request.input('status', sql.Bit, statusVal)
+    setClauses.push('status = @status')
+    setClauses.push('fecha_baja = CASE WHEN @status = 0 THEN GETDATE() ELSE NULL END')
+  }
+
+  const query = `UPDATE usuarios SET ${setClauses.join(', ')} WHERE id_usuario = @id`
   await request.query(query)
 }
 

@@ -1,4 +1,4 @@
-import { getConfigFechas, updateConfigFechas, deleteConfigFechasById } from '../models/configFechasModel.js'
+import { getConfigFechas, updateConfigFechas, deleteConfigFechasById, editConfigFecha } from '../models/configFechasModel.js'
 import { crearNotificacion } from '../models/notificacionModel.js'
 import { getNewPool, getPool, sql } from '../config/db.js'
 import { getIo } from '../socket.js'
@@ -46,18 +46,34 @@ export const saveConfigFechas = async (req, res, next) => {
       await updateConfigFechas('captura', fecha_inicio, fecha_fin, habilitado, idsede, req.user.idusuario, fecha_limite)
     }
     
-    // Notificamos: Si idsede es 0, es a todos. Si no, a la sede específica.
-    const vigenciaTexto = fecha_limite ? ` (Disponible hasta el ${fecha_limite})` : ''
+    // Notificación formal a los distritos
+    const moduloTexto = modulo === 'programacion' 
+      ? 'Programación de actividades' 
+      : modulo === 'captura' 
+        ? 'Captura de evidencias' 
+        : 'Programación y Captura'
+    
+    const vigenciaTexto = fecha_limite ? ` La ventana de captura permanecerá abierta hasta el ${fecha_limite}.` : ''
+    const isGlobal = Number(idsede) === 0
+
+    const tituloNotif = isGlobal 
+      ? `Habilitación General: ${moduloTexto} (Meses Vencidos)` 
+      : `Habilitación Distrital: ${moduloTexto} (Distrito ${idsede})`
+
+    const mensajeNotif = isGlobal
+      ? `Se ha autorizado la ${moduloTexto.toLowerCase()} para el periodo del ${fecha_inicio} al ${fecha_fin} para todas las Direcciones Distritales.${vigenciaTexto}`
+      : `Se ha autorizado la ${moduloTexto.toLowerCase()} para el periodo del ${fecha_inicio} al ${fecha_fin} para la Dirección Distrital ${idsede}.${vigenciaTexto}`
+
     await crearNotificacion({
       tipo: 'fecha_habilitada',
-      titulo: Number(idsede) === 0 ? 'Nuevo periodo de captura/programación habilitado' : `Fechas habilitadas (Distrito ${idsede})`,
-      mensaje: `Se ha habilitado el periodo del ${fecha_inicio} al ${fecha_fin}${vigenciaTexto}.`,
-      idsede_origen: 0,
+      titulo: tituloNotif,
+      mensaje: mensajeNotif,
+      idsede_origen: Number(idsede),
       idsede_destino: Number(idsede),
       idusuario_destino: 0
     })
 
-    // Emitir socket en vivo para actualización inmediata de radiales
+    // Emitir socket en vivo para actualización inmediata de radiales y notificaciones
     try {
       const io = getIo()
       if (io) {
@@ -68,12 +84,84 @@ export const saveConfigFechas = async (req, res, next) => {
           fecha_fin,
           fecha_limite
         })
+        io.emit('notificacion:nueva', {
+          tipo: 'fecha_habilitada',
+          titulo: tituloNotif,
+          mensaje: mensajeNotif,
+          idsede: Number(idsede)
+        })
       }
     } catch (wsErr) {
       // ignore
     }
 
-    return res.json({ success: true, message: 'Configuración actualizada con éxito' })
+    return res.json({ success: true, message: 'Configuración actualizada y notificación enviada con éxito' })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export const updateConfigFecha = async (req, res, next) => {
+  try {
+    const rawIds = String(req.params.id).split(',').map(n => Number(n.trim())).filter(Boolean)
+    const { fecha_limite, fecha_inicio, fecha_fin } = req.body
+    if (!fecha_limite) {
+      return res.status(400).json({ success: false, message: 'La nueva fecha límite es obligatoria.' })
+    }
+    for (const id of rawIds) {
+      await editConfigFecha(id, fecha_limite, fecha_inicio, fecha_fin)
+    }
+
+    // Notificar ampliación de prórroga a los distritos
+    let tituloAmpliacion = 'Prórroga de Fechas Ampliada'
+    let mensajeAmpliacion = `Se ha ampliado el plazo para registro extemporáneo hasta el ${fecha_limite}.`
+    let distritoDestino = 0
+
+    try {
+      const pool = await getNewPool()
+      const rowRes = await pool.request()
+        .input('id', sql.Int, rawIds[0])
+        .query(`
+          SELECT id_distrito, tipo_alcance AS modulo, 
+                 CONVERT(VARCHAR(10), fecha_hora_apertura, 120) AS f_ini,
+                 CONVERT(VARCHAR(10), fecha_hora_cierre, 120) AS f_fin
+          FROM config_fechas_acceso WHERE id_config = @id
+        `)
+      if (rowRes.recordset.length > 0) {
+        const item = rowRes.recordset[0]
+        distritoDestino = item.id_distrito || 0
+        const periodoStr = item.f_ini && item.f_fin ? ` (periodo ${item.f_ini} al ${item.f_fin})` : ''
+        tituloAmpliacion = distritoDestino === 0 
+          ? 'Prórroga Ampliada: Fechas por Meses Vencidos' 
+          : `Prórroga Ampliada (Distrito ${distritoDestino})`
+        mensajeAmpliacion = distritoDestino === 0
+          ? `Se ha ampliado el plazo de registro extemporáneo${periodoStr}. La ventana permanecerá abierta hasta el ${fecha_limite}.`
+          : `Se ha ampliado el plazo de registro extemporáneo${periodoStr} para el Distrito ${distritoDestino}. Ventana abierta hasta el ${fecha_limite}.`
+      }
+    } catch (e) {}
+
+    await crearNotificacion({
+      tipo: 'fecha_habilitada',
+      titulo: tituloAmpliacion,
+      mensaje: mensajeAmpliacion,
+      idsede_origen: distritoDestino,
+      idsede_destino: distritoDestino,
+      idusuario_destino: 0
+    })
+
+    try {
+      const io = getIo()
+      if (io) {
+        io.emit('fechas:actualizadas', { ids: rawIds, fecha_limite })
+        io.emit('notificacion:nueva', {
+          tipo: 'fecha_habilitada',
+          titulo: tituloAmpliacion,
+          mensaje: mensajeAmpliacion,
+          idsede: distritoDestino
+        })
+      }
+    } catch (wsErr) {}
+    return res.json({ success: true, message: 'Plazo y ventana de fechas actualizados exitosamente.' })
   } catch (error) {
     return next(error)
   }
@@ -81,15 +169,17 @@ export const saveConfigFechas = async (req, res, next) => {
 
 export const deleteConfigFecha = async (req, res, next) => {
   try {
-    const id = Number(req.params.id)
-    await deleteConfigFechasById(id)
+    const rawIds = String(req.params.id).split(',').map(n => Number(n.trim())).filter(Boolean)
+    for (const id of rawIds) {
+      await deleteConfigFechasById(id)
+    }
     try {
       const io = getIo()
       if (io) {
-        io.emit('fechas:actualizadas', { id, deleted: true })
+        io.emit('fechas:actualizadas', { ids: rawIds, deleted: true })
       }
     } catch (wsErr) {}
-    return res.json({ success: true, message: 'Excepción de distrito eliminada' })
+    return res.json({ success: true, message: 'Excepción eliminada exitosamente' })
   } catch (error) {
     return next(error)
   }
@@ -280,6 +370,99 @@ export const saveUltimaActualizacionConfig = async (req, res, next) => {
       message: 'Configuración de última actualización guardada',
       habilitado: Boolean(habilitado),
       fecha: hoy
+    })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export const getSistemaCierreConfig = async (req, res, next) => {
+  try {
+    const pool = await getNewPool()
+    const result = await pool.request().query(`
+      SELECT TOP 1
+        id_config,
+        fecha_hora_cierre,
+        fecha_hora_apertura,
+        mensaje_bloqueo,
+        status AS activo,
+        permite_superadmin
+      FROM config_fechas_acceso
+      WHERE tipo_alcance = 'cierre_sistema'
+      ORDER BY id_config DESC
+    `)
+
+    if (result.recordset.length > 0) {
+      const row = result.recordset[0]
+      const fCierre = row.fecha_hora_cierre ? new Date(row.fecha_hora_cierre).toISOString().slice(0, 16) : ''
+      const fApertura = row.fecha_hora_apertura ? new Date(row.fecha_hora_apertura).toISOString().slice(0, 16) : ''
+      return res.json({
+        success: true,
+        data: {
+          activo: Boolean(row.activo),
+          fecha_cierre: fCierre,
+          fecha_apertura: fApertura,
+          mensaje: row.mensaje_bloqueo || ''
+        }
+      })
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        activo: false,
+        fecha_cierre: '',
+        fecha_apertura: '',
+        mensaje: 'El sistema se encuentra en periodo de cierre institucional programado conforme a la normativa. Reanudación de servicio próximamente.'
+      }
+    })
+  } catch (error) {
+    return next(error)
+  }
+}
+
+export const saveSistemaCierreConfig = async (req, res, next) => {
+  try {
+    const { activo, fecha_cierre, fecha_apertura, mensaje } = req.body
+
+    // Validar coherencia de fechas si el bloqueo está activo
+    if (activo && fecha_cierre && fecha_apertura) {
+      const dAp = new Date(fecha_apertura)
+      const dCi = new Date(fecha_cierre)
+      if (dCi <= dAp) {
+        return res.status(400).json({
+          success: false,
+          message: 'La fecha de apertura debe ser anterior a la fecha de cierre.'
+        })
+      }
+    }
+
+    const pool = await getNewPool()
+
+    // Desactivar registros previos
+    await pool.request().query(`
+      UPDATE config_fechas_acceso SET status = 0 WHERE tipo_alcance = 'cierre_sistema'
+    `)
+
+    const request = pool.request()
+    request.input('descripcion', sql.VarChar(200), 'Cierre y Apertura Programada del Sistema (Inicio de Sesión)')
+    request.input('tipo_alcance', sql.VarChar(50), 'cierre_sistema')
+    request.input('fecha_cierre', sql.DateTime, fecha_cierre ? new Date(fecha_cierre) : null)
+    request.input('fecha_apertura', sql.DateTime, fecha_apertura ? new Date(fecha_apertura) : null)
+    request.input('mensaje_bloqueo', sql.VarChar(sql.MAX), String(mensaje || '').trim())
+    request.input('status', sql.Bit, activo ? 1 : 0)
+
+    await request.query(`
+      INSERT INTO config_fechas_acceso (
+        descripcion, tipo_alcance, id_distrito, id_tipousuario, fecha_hora_cierre, fecha_hora_apertura, mensaje_bloqueo, permite_superadmin, status, fecha_alta
+      ) VALUES (
+        @descripcion, @tipo_alcance, NULL, 1, @fecha_cierre, @fecha_apertura, @mensaje_bloqueo, 1, @status, GETDATE()
+      )
+    `)
+
+    return res.json({
+      success: true,
+      message: 'Configuración de cierre programado del sistema guardada con éxito.'
     })
   } catch (error) {
     return next(error)

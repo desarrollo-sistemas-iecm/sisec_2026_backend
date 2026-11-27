@@ -4,7 +4,8 @@ import fs from 'fs'
 import { env } from '../config/env.js'
 import { getNewPool, sql } from '../config/db.js'
 import { getCapturaByAccion, guardarCapturaInicial, finalizarAccion } from '../models/captura2027Model.js'
-import { registrarEncuesta2027, listEncuestasPorAccion } from '../models/encuestas2027Model.js'
+import { registrarEncuesta2027, listEncuestasPorAccion, getSiguienteFolioEncuesta, getSiguienteConsecutivoEncuesta } from '../models/encuestas2027Model.js'
+import { isFechaHabilitada } from '../models/configFechasModel.js'
 import { getIo } from '../socket.js'
 import { logger } from '../config/logger.js'
 
@@ -44,7 +45,22 @@ export const getCapturaDetailEndpoint = async (req, res, next) => {
 export const postGuardarCapturaEndpoint = async (req, res, next) => {
   try {
     const { id } = req.params
+    const userPermiso = Number(req.user?.permiso || req.user?.idpermiso || 1)
     const id_distrito = req.user?.idsede || req.user?.id_distrito || 1
+
+    // Validación de fecha permitida para operadores distritales
+    if (userPermiso === 1) {
+      const fechaCaptura = req.body.fecha_realizacion_accion || req.body.fecha_programada
+      if (fechaCaptura) {
+        const habilitada = await isFechaHabilitada('captura', fechaCaptura, id_distrito)
+        if (!habilitada) {
+          return res.status(403).json({
+            success: false,
+            message: `La actividad con fecha ${fechaCaptura} corresponde a un periodo pasado que se encuentra cerrado. Para registrar o editar actividades de meses anteriores, solicita una habilitación al Administrador.`
+          })
+        }
+      }
+    }
 
     const files = req.files || {}
     const filenames = {
@@ -146,6 +162,7 @@ export const postEncuestaAccionEndpoint = async (req, res, next) => {
 
     const regResult = await registrarEncuesta2027({
       id_acciones_educativas: Number(id),
+      id_distrito,
       folio_accion_educativa,
       tipo_encuesta,
       p1_edad_persona_asistente,
@@ -207,7 +224,33 @@ export const getEncuestasAccionEndpoint = async (req, res, next) => {
     }
 
     const data = await listEncuestasPorAccion(id)
-    return res.json({ success: true, data })
+
+    // Obtener datos de la acción para generar el folio oficial consecutivo
+    let accionDistrito = req.user?.id_distrito || req.user?.idsede || 1
+    let folioAccion = ''
+    const pool = await getNewPool()
+    const distReq = pool.request()
+    distReq.input('id', sql.Int, Number(id))
+    const distRes = await distReq.query(`
+      SELECT ae.folio_accion_educativa, ISNULL(u.id_distrito, 1) AS id_distrito
+      FROM acciones_educativas ae
+      LEFT JOIN usuarios u ON ae.id_usuario = u.id_usuario
+      WHERE ae.id_acciones_educativas = @id
+    `)
+    if (distRes.recordset.length > 0) {
+      accionDistrito = Number(distRes.recordset[0].id_distrito)
+      folioAccion = distRes.recordset[0].folio_accion_educativa || ''
+    }
+
+    const siguienteConsecutivo = await getSiguienteConsecutivoEncuesta(Number(id))
+    const siguienteFolio = await getSiguienteFolioEncuesta(Number(id), folioAccion, accionDistrito, siguienteConsecutivo)
+
+    return res.json({ 
+      success: true, 
+      data,
+      siguiente_consecutivo: siguienteConsecutivo,
+      siguiente_folio: siguienteFolio
+    })
   } catch (error) {
     logger.error(`[CAPTURA_2027] Error al listar encuestas de la acción: ${error.message}`)
     return next(error)
